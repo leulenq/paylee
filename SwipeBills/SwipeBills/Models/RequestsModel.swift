@@ -11,13 +11,20 @@ final class RequestsModel {
     private(set) var requests: [BillRequest] = []
     private(set) var hasLoaded = false
     private(set) var errorMessage: String?
-    /// True when showing in-memory preview data because the backend doesn't serve /api/requests yet.
+    /// Preview data is available only through the explicit debug launch argument.
     private(set) var isPreview = false
 
     private var service: RequestsService
+    private let api: APIClient
+    private var generation = 0
 
     init(api: APIClient) {
+        self.api = api
         service = LiveRequestsService(api: api)
+        configurePreview()
+    }
+
+    private func configurePreview() {
         #if DEBUG
         // `-PayleePreviewRequests empty|sample` skips the backend entirely.
         if let mode = UserDefaults.standard.string(forKey: "PayleePreviewRequests") {
@@ -27,32 +34,55 @@ final class RequestsModel {
         #endif
     }
 
+    /// Clear private data and discard in-flight responses when the signed-in account changes.
+    func reset() {
+        generation += 1
+        requests = []
+        hasLoaded = false
+        errorMessage = nil
+        isPreview = false
+        service = LiveRequestsService(api: api)
+        configurePreview()
+    }
+
     /// Bills still moving, newest first; then everything finished.
     var active: [BillRequest] { requests.filter { !$0.status.isClosed } }
     var past: [BillRequest] { requests.filter { $0.status.isClosed } }
 
     func load() async {
+        let started = generation
         do {
-            requests = try await perform { try await $0.list() }
+            let loaded = try await service.list()
+            guard started == generation else { return }
+            requests = loaded
             errorMessage = nil
         } catch {
+            guard started == generation else { return }
             errorMessage = error.localizedDescription
         }
         hasLoaded = true
     }
 
     func submit(_ draft: RequestDraft) async throws -> BillRequest {
-        let request = try await perform { try await $0.submit(draft) }
+        let started = generation
+        let request = try await service.submit(draft)
+        guard started == generation else { throw CancellationError() }
         upsert(request)
         return request
     }
 
     func withdraw(_ id: UUID) async throws {
-        upsert(try await perform { try await $0.withdraw(id) })
+        let started = generation
+        let request = try await service.withdraw(id)
+        guard started == generation else { throw CancellationError() }
+        upsert(request)
     }
 
     func updateBalance(_ id: UUID, amountCents: Int, note: String) async throws {
-        upsert(try await perform { try await $0.updateBalance(id, amountCents: amountCents, note: note) })
+        let started = generation
+        let request = try await service.updateBalance(id, amountCents: amountCents, note: note)
+        guard started == generation else { throw CancellationError() }
+        upsert(request)
     }
 
     private func upsert(_ request: BillRequest) {
@@ -63,19 +93,4 @@ final class RequestsModel {
         }
     }
 
-    /// Runs a call against the current service. In debug builds a 404 means the backend hasn't shipped the
-    /// requestor endpoints yet, so the model switches to preview data and retries once.
-    private func perform<T>(_ call: (RequestsService) async throws -> T) async throws -> T {
-        do {
-            return try await call(service)
-        } catch let error as APIError where error.status == 404 && !isPreview {
-            #if DEBUG
-            service = PreviewRequestsService(seeded: false)
-            isPreview = true
-            return try await call(service)
-            #else
-            throw error
-            #endif
-        }
-    }
 }

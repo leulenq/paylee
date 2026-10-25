@@ -27,6 +27,14 @@ _wake = threading.Event()
 MAX_ATTEMPTS = 5
 
 MESSAGES = {
+    "withdrawn": (
+        "You withdrew your bill",
+        "Your {biller} bill is no longer accepting gifts. Any eligible gifts will be returned to their original payment methods.",
+    ),
+    "balance_reported": (
+        "We're checking your updated balance",
+        "We received your balance update for {biller}. New gifts and payment release are paused while we confirm it with the company.",
+    ),
     "submitted": (
         "We received your bill",
         "Thanks for sending your {biller} bill. A reviewer will check it within two business days and email "
@@ -75,7 +83,7 @@ def bill_event(conn: psycopg.Connection, bill_id, event: str) -> None:
     bill = conn.execute(
         """
         select requester_first_name, requester_email, biller_name, amount_due_cents, amount_raised_cents,
-               payout_confirmation
+               payout_confirmation, requester_user_id
         from bills where id = %s
         """,
         (bill_id,),
@@ -105,6 +113,9 @@ def bill_event(conn: psycopg.Connection, bill_id, event: str) -> None:
             f"Hi {bill['requester_first_name']},\n\n{body.format(**values)}\n\nThe Paylee team\n",
         ),
     )
+    if bill["requester_user_id"]:
+        _queue_push(conn, bill["requester_user_id"], subject.format(**values),
+                    f"Your {bill['biller_name']} bill has an update. Open My bills to see its status.", bill_id)
     _wake.set()
 
 
@@ -148,7 +159,7 @@ def giver_refunded(conn: psycopg.Connection, contribution_id) -> None:
         conn,
         row["user_id"],
         "You've been refunded",
-        f"{format_dollars(row['amount_cents'])} came back to you. The {row['biller_name']} bill was finished before your payment landed.",
+        f"{format_dollars(row['amount_cents'])} for the {row['biller_name']} bill was refunded to your original payment method.",
         row["bill_id"],
     )
 

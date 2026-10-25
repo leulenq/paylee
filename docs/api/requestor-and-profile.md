@@ -1,8 +1,8 @@
 # API contract: requestor side, roles, and profile settings
 
-Written by the iOS frontend for the backend. The iOS app calls exactly these endpoints. Until they exist,
-debug builds detect the 404 and fall back to labeled preview data (`RequestsAPI.swift`), so nothing here
-blocks the backend's own order of work. JSON keys are snake_case; money is integer cents; timestamps are
+The requester endpoints are implemented in `backend/app/requester_api.py`. The app uses the live API;
+preview data requires an explicit debug launch argument and is never activated by a failed request.
+JSON keys are snake_case; money is integer cents; timestamps are
 ISO 8601 with offset; dates are `YYYY-MM-DD`. Auth is the existing `Authorization: Bearer <session token>`.
 
 The invariants in `CLAUDE.md` apply unchanged. In particular: money only ever goes to the verified biller,
@@ -77,13 +77,29 @@ Same validation as the web form. Returns `201` with the request object. Validati
 ### `POST /api/requests/{id}/withdraw`
 
 Allowed while `submitted`, `in_review`, `needs_info`, `queued`, or `live`. Any contributions already made are
-refunded to their givers (same path as admin removal). Returns the updated request.
+queued for durable refunds to their original payment methods (same path as admin removal). Returns the
+updated request immediately; it does not claim a pending refund has completed. Repeating a completed
+withdrawal is idempotent. A released, executing, submitted, or settled payment blocks withdrawal until
+treasury resolves it. Late collections for canceled checkouts are refunded rather than applied.
 
 ### `POST /api/requests/{id}/balance`
 
-Body `{ "amount_cents": 15000, "note": "I paid $62.50 myself" }`. The requester reports a lower balance (they
-paid some, or the biller changed it). The backend must not raise `amount_due_cents` from this; it flags the
-bill for re-verification and pauses new contributions above the reported amount. Returns the updated request.
+Body `{ "amount_cents": 15000, "note": "I paid $62.50 myself" }`. The requester reports a lower balance;
+zero is allowed when they paid the whole bill. Increases are rejected, and duplicate equal reports are
+idempotent. The backend preserves `amount_due_cents` and all collected amounts until independent review.
+It moves the bill to `in_review` and pauses all new gifts and payment release. Unreleased preparations
+are canceled, but uncertain outgoing payments are preserved for treasury investigation.
+
+Resuming requires fresh biller evidence observed after the latest report and a new reviewer approval.
+The amount cannot be lowered below collected funds until excess funding is resolved. The MVP can close
+the case and refund all eligible gifts; it does not silently redistribute or partially refund them.
+Expired postings do not reopen for funding after a balance review. Notes are encrypted, and staff can
+read them through the authenticated operations console; private staff notes never become `status_note`.
+
+Ownership comes from the authenticated account, never from an uploaded field, role choice, or matching
+email address. Anonymous web/legacy submissions are not automatically claimed by an app account.
+Duplicate-debt protection still applies to a resubmission: a closed prior case releases its active claim
+only after all collections/refunds are resolved and no outgoing payment remains active.
 
 ## 3. Profile settings
 

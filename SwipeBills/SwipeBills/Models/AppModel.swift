@@ -83,6 +83,7 @@ final class AppModel {
     }
 
     func signOut() {
+        requests.reset()
         // Stop this device getting the old account's notifications. Best effort: the server also drops
         // tokens Apple reports as dead.
         if let pushToken, api.token != nil {
@@ -218,6 +219,7 @@ final class AppModel {
     }
 
     private func finishSignIn(_ session: SessionResponse) {
+        requests.reset()
         KeychainStore.save(session.token, account: Self.tokenAccount)
         api.token = session.token
         isSignedIn = true

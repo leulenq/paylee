@@ -4,10 +4,13 @@ from pathlib import Path
 
 import psycopg
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, db, notify, operations, payments, trust, web
+from . import api, db, notify, operations, payments, requester_api, trust, web
+from .body_limits import BodyLimitMiddleware
 from .config import get_settings
 
 
@@ -35,6 +38,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     settings.check_safe_for_environment()
     app = FastAPI(title="Paylee", lifespan=lifespan)
+    app.add_middleware(BodyLimitMiddleware)
     app.state.payments = payments.build_provider(settings)
     app.state.mailer = notify.build_mailer(settings)
     app.state.pusher = notify.build_pusher(settings)
@@ -42,6 +46,14 @@ def create_app() -> FastAPI:
     app.include_router(api.router)
     app.include_router(web.router)
     app.include_router(operations.router)
+    app.include_router(requester_api.router)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, error: RequestValidationError):
+        if request.url.path.startswith("/api/requests"):
+            fields = {str(item["loc"][-1]): item["msg"] for item in error.errors()}
+            return JSONResponse(status_code=422, content={"detail": fields})
+        return await request_validation_exception_handler(request, error)
 
     @app.exception_handler(trust.TrustError)
     async def trust_error(request: Request, error: trust.TrustError):

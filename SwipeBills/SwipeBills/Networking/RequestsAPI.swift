@@ -3,8 +3,7 @@
 //  SwipeBills
 //
 //  The requestor side: a person's own bills, seen from their side. The endpoints are specified in
-//  docs/api/requestor-and-profile.md. Until the backend serves them, debug builds fall back to an
-//  in-memory preview (clearly labeled in the UI) so the screens can be built and tested.
+//  docs/api/requestor-and-profile.md. Preview data requires an explicit debug launch argument.
 //
 
 import Foundation

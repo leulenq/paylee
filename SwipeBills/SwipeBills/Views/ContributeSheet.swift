@@ -65,7 +65,8 @@ struct ContributeSheet: View {
                     bill: bill,
                     amountCents: amountCents,
                     closedBill: closedBill,
-                    stillProcessing: stillProcessing
+                    stillProcessing: stillProcessing,
+                    showsCity: showsCity
                 ) { dismiss() }
                 .transition(.opacity)
             }
@@ -404,6 +405,7 @@ private struct SuccessView: View {
     let amountCents: Int
     let closedBill: Bool
     let stillProcessing: Bool
+    let showsCity: Bool
     let onDone: () -> Void
 
     @State private var shown = false
@@ -477,10 +479,10 @@ private struct SuccessView: View {
 
     private var message: String {
         if stillProcessing {
-            return "Your payment is processing. It'll show on the bill in a moment."
+            return "Your gift is processing. We'll confirm collection first, then payment to the biller."
         }
         if closedBill {
-            return "\(bill.requesterFirstName)'s \(bill.billerName) bill is paid in full. We pay \(bill.billerName) directly and tell you when it's done."
+            return "\(bill.requesterFirstName)'s \(bill.billerName) bill is fully funded. We'll confirm when payment is applied to the account."
         }
         return "Straight to \(bill.billerName) for \(bill.requesterFirstName). We'll tell you when the bill is paid off."
     }

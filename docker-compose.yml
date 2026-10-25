@@ -1,3 +1,5 @@
+# Preserve local containers and volumes across the repository rename to Paylee.
+name: swipegofundme
 services:
   api:
     profiles: ["app"]

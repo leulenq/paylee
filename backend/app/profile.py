@@ -155,6 +155,7 @@ def open_bills(conn: psycopg.Connection, user_id) -> list[dict]:
         from contributions c
         join bills b on b.id = c.bill_id
         where c.user_id = %s and c.status = 'succeeded' and b.status = 'live'
+          and {bills.ELIGIBLE_SQL}
           and b.amount_raised_cents < b.amount_due_cents
         group by b.id
         order by b.due_date, b.id
@@ -164,13 +165,13 @@ def open_bills(conn: psycopg.Connection, user_id) -> list[dict]:
 
 
 def place_this_week(conn: psycopg.Connection, state: str) -> dict | None:
-    """How many bills reached covered in the payer's top city this week. Nothing, when it's zero."""
+    """Confirmed full bill payments in the payer's top city this week."""
     row = conn.execute(
         """
         select split_part(b.city, ',', 1) as city, count(*) as n
         from bills b
-        where b.state = %s and b.status in ('funded', 'paid')
-          and b.funded_at >= date_trunc('week', now())
+        where b.state = %s and b.status = 'paid' and b.amount_raised_cents = b.amount_due_cents
+          and b.paid_at >= date_trunc('week', now())
         group by 1
         order by n desc, city
         limit 1

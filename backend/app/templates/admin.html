@@ -5,7 +5,7 @@
 <h1>Admin</h1>
 <p><a href="/admin/ops">Open verified biller and payment operations</a> · <a href="/admin/login">Individual staff sign-in</a></p>
 <p class="lede">
-  {{ counts.get('submitted', 0) }} to review ·
+  {{ counts.get('submitted', 0) + counts.get('in_review', 0) + counts.get('needs_info', 0) }} to review ·
   {{ counts.get('queued', 0) }} waitlisted ·
   {{ counts.get('live', 0) }} / {{ max_live }} live ·
   {{ counts.get('funded', 0) }} to pay out ·
@@ -23,23 +23,35 @@
     · claimed {{ b.claimed_amount_cents|dollars }} · due {{ b.due_date }}
     · <a href="/admin/uploads/{{ b.id }}" target="_blank" rel="noopener">Open bill</a>
   </p>
+  {% if b.verification_paused %}
+  <p class="notice">Funding and payment release paused. Requester reported {{ b.reported_balance_cents|dollars }} outstanding.
+    <a href="/admin/ops/bills/{{ b.id }}/balance-reports">Read private balance reports</a>.
+    Obtain fresh biller evidence before approval. If nothing is owed, close the request and return eligible gifts.</p>
+  {% endif %}
   <form method="post" action="/admin/bills/{{ b.id }}/approve">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div class="row">
       <div><label>Company (as on bill)</label><input type="text" name="biller_name" value="{{ b.biller_name }}"></div>
-      <div><label>Verified amount due</label><input type="text" name="amount_due" value="{{ '%.2f'|format(b.claimed_amount_cents / 100) }}"></div>
+      <div><label>Independently verified amount due</label><input type="text" name="amount_due" value="{{ '%.2f'|format((b.reported_balance_cents if b.verification_paused else (b.amount_due_cents or b.claimed_amount_cents)) / 100) }}"></div>
     </div>
     <label>Story (edit out any last names, addresses, or account numbers)</label>
     <textarea name="story">{{ b.story }}</textarea>
     <label class="check"><input type="checkbox" name="checked" value="true">
-      <span>The bill looks genuine, the name matches, the company is real, and the story has no private details.</span></label>
+      <span>The biller and debt have independent verification evidence, and the public story has no private details.</span></label>
     <p><button type="submit">Approve</button></p>
   </form>
-  <form method="post" action="/admin/bills/{{ b.id }}/reject" class="row">
+  {% if not b.amount_raised_cents %}<form method="post" action="/admin/bills/{{ b.id }}/reject" class="row">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div><input type="text" name="note" placeholder="Reason (internal)"></div>
     <div><button class="danger" type="submit">Reject</button></div>
+  </form>{% endif %}
+  {% if b.status in ('in_review', 'needs_info') %}
+  <form method="post" action="/admin/bills/{{ b.id }}/remove" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div><input type="text" name="note" placeholder="Internal reason for closing"></div>
+    <div><button class="danger" type="submit">Close and return eligible gifts</button></div>
   </form>
+  {% endif %}
 </div>
 {% else %}
 <p class="muted">Nothing to review.</p>

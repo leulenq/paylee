@@ -113,3 +113,17 @@ def test_worker_crash_on_last_attempt_becomes_terminal_failure():
         assert jobs.claim(conn) is None
         row = conn.execute("select * from work_jobs").fetchone()
         assert row["status"] == "failed" and row["last_error"] == "LeaseExhausted"
+
+
+def test_oversized_request_is_rejected_before_form_spooling(client, settings, monkeypatch):
+    monkeypatch.setattr(settings, "max_upload_bytes", 1024)
+    response = client.post("/submit", content=b"x" * 70000, headers={"content-type": "multipart/form-data; boundary=test"})
+    assert response.status_code == 413
+    with db.transaction() as conn:
+        assert conn.execute("select count(*) as n from documents").fetchone()["n"] == 0
+
+
+def test_chunked_body_limit_does_not_trust_missing_content_length(client):
+    response = client.post("/api/auth/dev", content=iter([b" " * 600000, b" " * 600000]),
+                           headers={"content-type": "application/json"})
+    assert response.status_code == 413

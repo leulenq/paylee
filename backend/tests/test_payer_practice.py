@@ -138,6 +138,8 @@ def test_place_and_season_come_with_the_deck(client, make_user, make_bill):
     headers, _ = make_user()
     bill_id = make_bill(amount_due_cents=5_000)
     client.post(f"/api/bills/{bill_id}/contributions", json={"amount_cents": 5_000}, headers=headers)
+    assert client.get("/api/feed?state=KY", headers=headers).json()["place"] is None
+    complete_payment(bill_id)
 
     deck = client.get("/api/feed?state=KY", headers=headers).json()
 

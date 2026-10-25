@@ -1,8 +1,6 @@
 """Server-rendered pages: the requester intake form, the admin console, and the checkout return hop."""
 
 import logging
-import re
-from datetime import date, timedelta
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlencode
@@ -22,7 +20,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import bills, db, documents, notify, ratelimit, refunds, staff, trust
+from . import bills, db, documents, intake, notify, ratelimit, refunds, staff, trust
 from .config import get_settings
 from .money import format_dollars, parse_dollars
 from .security import admin_csrf_token, require_admin
@@ -33,21 +31,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory=Path(__file__).with_name("templates"))
 templates.env.filters["dollars"] = format_dollars
 
-EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 APP_CALLBACK_SCHEME = "paylee"
-
-
-def _detect_upload_type(head: bytes) -> tuple[str, str] | None:
-    """Identifies the file from its first bytes, not its name or the browser's claimed type."""
-    if head.startswith(b"%PDF-"):
-        return "application/pdf", ".pdf"
-    if head.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg", ".jpg"
-    if head.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png", ".png"
-    if head[4:8] == b"ftyp" and head[8:12] in (b"heic", b"heix", b"mif1", b"msf1"):
-        return "image/heic", ".heic"
-    return None
 
 
 # --- Requester intake --------------------------------------------------------
@@ -80,7 +64,6 @@ def submit_bill(
     consent: Annotated[bool, Form()] = False,
     bill_file: Annotated[UploadFile | None, File()] = None,
 ) -> HTMLResponse:
-    settings = get_settings()
     client = request.client.host if request.client else "unknown"
     if ratelimit.submissions.is_blocked(client):
         return templates.TemplateResponse(
@@ -94,52 +77,19 @@ def submit_bill(
         "category": category, "biller_name": biller_name.strip(), "amount": amount.strip(),
         "due_date": due_date, "story": story.strip(),
     }
-    errors: dict[str, str] = {}
-
-    if not 1 <= len(values["first_name"]) <= 40:
-        errors["first_name"] = "Enter your first name."
-    if not EMAIL_PATTERN.match(values["email"]) or len(values["email"]) > 254:
-        errors["email"] = "Enter an email we can reach you at."
-    if not 2 <= len(values["city"]) <= 60:
-        errors["city"] = "Enter your city."
-    if state not in bills.US_STATES:
-        errors["state"] = "Choose your state."
-    if category not in bills.CATEGORIES:
-        errors["category"] = "Choose what kind of bill this is."
-    if not 2 <= len(values["biller_name"]) <= 80:
-        errors["biller_name"] = "Enter the company on the bill."
-
     amount_cents = 0
+    amount_error = None
     try:
         amount_cents = parse_dollars(values["amount"])
     except ValueError as error:
-        errors["amount"] = str(error)
-
-    parsed_due: date | None = None
-    try:
-        parsed_due = date.fromisoformat(due_date)
-        today = date.today()
-        if not today - timedelta(days=60) <= parsed_due <= today + timedelta(days=365):
-            errors["due_date"] = "Enter a due date within the last 60 days or the next year."
-    except ValueError:
-        errors["due_date"] = "Enter the due date on the bill."
-
-    if not 40 <= len(values["story"]) <= 800:
-        errors["story"] = "Write between 40 and 800 characters."
-    if not consent:
-        errors["consent"] = "Confirm the bill is in your name."
-
-    content = b""
-    detected = None
-    if bill_file is None or not bill_file.filename:
-        errors["bill_file"] = "Attach a photo or PDF of the bill."
-    else:
-        content = bill_file.file.read(settings.max_upload_bytes + 1)
-        detected = _detect_upload_type(content[:16])
-        if len(content) > settings.max_upload_bytes:
-            errors["bill_file"] = "The file must be under 10 MB."
-        elif detected is None:
-            errors["bill_file"] = "Upload a PDF, JPG, PNG, or HEIC file."
+        amount_error = str(error)
+    parsed_due, errors = intake.validate(values, amount_cents, consent)
+    if amount_error:
+        errors.pop("amount_cents", None)
+        errors["amount"] = amount_error
+    content, detected, file_error = intake.read_upload(bill_file)
+    if file_error:
+        errors["bill_file"] = file_error
 
     if errors:
         return templates.TemplateResponse(

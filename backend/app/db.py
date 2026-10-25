@@ -39,3 +39,4 @@ def init_schema(conn: psycopg.Connection) -> None:
     conn.execute("select pg_advisory_xact_lock(7201000)")
     conn.execute(SCHEMA_PATH.read_text())
     conn.execute(SCHEMA_PATH.with_name("trust_schema.sql").read_text())
+    conn.execute(SCHEMA_PATH.with_name("requester_schema.sql").read_text())

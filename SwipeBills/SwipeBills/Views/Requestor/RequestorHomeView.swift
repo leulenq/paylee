@@ -21,12 +21,19 @@ struct RequestorHomeView: View {
                 ScreenTitle("My bills")
                 #if DEBUG
                 if model.isPreview {
-                    Text("Preview data. The server doesn't serve requests yet.")
+                    Text("Preview data enabled for this debug session.")
                         .font(Typeface.ui(13, .medium, relativeTo: .caption))
                         .foregroundStyle(Color.inkMuted)
                         .padding(.top, 6)
                 }
                 #endif
+
+                if let error = model.errorMessage {
+                    Text(error)
+                        .font(Typeface.ui(15, .regular, relativeTo: .footnote))
+                        .foregroundStyle(Color.danger)
+                        .padding(.top, 12)
+                }
 
                 if !model.hasLoaded {
                     ProgressView().tint(Color.inkMuted).frame(maxWidth: .infinity, minHeight: 200)
@@ -96,14 +103,14 @@ struct RequestorHomeView: View {
 
     private func statusLine(_ request: BillRequest) -> String {
         switch request.status {
-        case .submitted, .inReview: return "A person is checking your bill. We'll email you either way."
+        case .submitted, .inReview: return request.statusNote ?? "A person is checking your bill. We'll email you either way."
         case .needsInfo: return request.statusNote ?? "We need a little more from you. Check your email."
         case .rejected: return request.statusNote ?? "We couldn't verify this bill."
         case .queued: return "Approved. It goes live as soon as a spot opens."
         case .live: return "Live. \(Money.format(request.amountRaisedCents)) of \(Money.format(request.targetCents)) covered. \(DuePhrase.text(for: request.dueDate))."
-        case .funded: return "Fully covered. Paylee is paying \(request.billerName). Please don't pay this amount yourself."
+        case .funded: return "Fully funded. We'll confirm when payment is applied to your account. Tell us if the balance changes."
         case .paid: return "Paylee confirmed payment to \(request.billerName)."
-        case .expired: return "The due date passed. Anything raised still goes to \(request.billerName)."
+        case .expired: return "This posting ended. Paylee is checking whether to pay the company or return the gifts."
         case .withdrawn: return "You withdrew this bill."
         case .removed: return "This bill was taken down after review."
         }

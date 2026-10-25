@@ -8,7 +8,8 @@ grant select, insert, update on users, bills, contributions, passes, emails, dev
     pushes, reports, documents, billers, payment_orders, provider_events, work_jobs, funding_disputes to :"runtime_role";
 grant delete on passes, device_tokens to :"runtime_role";
 grant select, insert on evidence, payment_destinations, bill_verifications, review_decisions,
-    debt_claims, ledger_journals, audit_events to :"runtime_role";
+    debt_claims, ledger_journals, audit_events, open_bill_notices, balance_reports to :"runtime_role";
 grant select on ledger_lines, staff to :"runtime_role";
 grant update (last_totp_counter, session_version) on staff to :"runtime_role";
+grant update (bill_id) on debt_claims to :"runtime_role";
 grant usage, select on sequence audit_events_id_seq to :"runtime_role";

@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 import psycopg
 
 from . import jobs, ledger, notify, staff, trust
-from .config import Settings
+from .config import Settings, get_settings
 from .money import format_dollars
 
 CATEGORIES = ("rent", "utilities", "medical", "phone", "internet", "other")
@@ -43,7 +43,8 @@ QUEUE_LOCK_KEY = 7_201_001
 # Same admission rule for queue promotion, feed visibility, and public active bill pages.
 ELIGIBLE_SQL = """exists (
     select 1 from bill_verifications v join billers br on br.id = v.biller_id
-    where v.id = b.verification_id and v.expires_at > now() and br.status = 'approved'
+    where v.id = b.verification_id and not b.verification_paused
+      and v.expires_at > now() and br.status = 'approved'
       and br.active_destination_id = v.destination_id
       and exists (select 1 from review_decisions r where r.verification_id = v.id and r.decision = 'approved')
 )"""
@@ -97,31 +98,42 @@ def approve(
     conn: psycopg.Connection, bill_id, *, amount_due_cents: int, biller_name: str, story: str, max_live: int, actor: dict
 ) -> bool:
     staff.require_role(actor, "reviewer")
-    bill = conn.execute("select status, amount_due_cents from bills where id = %s for update", (bill_id,)).fetchone()
-    if not bill or bill["status"] in ("paid", "removed", "rejected"):
+    bill = conn.execute("select * from bills where id = %s for update", (bill_id,)).fetchone()
+    if not bill or bill["status"] in ("paid", "removed", "rejected", "withdrawn"):
         return False
     verification = trust.eligible_verification(conn, bill_id, amount=amount_due_cents, lock=True, require_review=False)
     if amount_due_cents != verification["verified_balance_cents"]:
         raise trust.TrustError("Published amount must equal the independently verified eligible balance")
     if conn.execute("select 1 from review_decisions where verification_id = %s and decision = 'approved'", (verification["id"],)).fetchone():
         return False
-    if bill["status"] != "submitted" and bill["amount_due_cents"] != amount_due_cents:
+    if amount_due_cents < bill["amount_raised_cents"]:
+        raise trust.TrustError("Resolve excess funding before approving a lower balance")
+    if bill["verification_paused"]:
+        if conn.execute("select 1 from payment_orders where bill_id = %s and status not in ('canceled', 'returned')", (bill_id,)).fetchone():
+            raise trust.TrustError("Treasury must resolve the existing payment before this bill can resume")
+        if bill["amount_due_cents"] is not None and amount_due_cents > bill["amount_due_cents"]:
+            raise trust.TrustError("Additional charges need a separately reviewed bill")
+    elif bill["status"] != "submitted" and bill["amount_due_cents"] != amount_due_cents:
         raise trust.TrustError("Resolve changed balances and refund excess funding before changing a published amount")
     biller_name = verification["legal_name"]
     conn.execute("""insert into review_decisions (bill_id, verification_id, actor_id, decision)
                     values (%s, %s, %s, 'approved')""", (bill_id, verification["id"], actor["id"]))
-    if bill["status"] != "submitted":
+    if bill["status"] != "submitted" and not bill["verification_paused"]:
         conn.execute("update bills set story = %s, biller_name = %s where id = %s", (story, biller_name, bill_id))
         trust.audit(conn, actor, "bill.reapproved", bill_id, verification_id=str(verification["id"]))
         return True
     row = conn.execute(
         """
         update bills
-        set status = 'queued', amount_due_cents = %s, biller_name = %s, story = %s
-        where id = %s and status = 'submitted'
+        set status = case when amount_raised_cents = %s and amount_raised_cents > 0 then 'funded'
+                          when due_date < current_date - %s::int then 'expired' else 'queued' end,
+            amount_due_cents = %s, biller_name = %s, story = %s,
+            verification_paused = false, requester_status_note = null,
+            funded_at = case when amount_raised_cents = %s and amount_raised_cents > 0 then coalesce(funded_at, now()) else funded_at end
+        where id = %s and status in ('submitted', 'in_review', 'needs_info')
         returning id
         """,
-        (amount_due_cents, biller_name, story, bill_id),
+        (amount_due_cents, get_settings().expiry_grace_days, amount_due_cents, biller_name, story, amount_due_cents, bill_id),
     ).fetchone()
     if row is None:
         return False
@@ -131,12 +143,18 @@ def approve(
     status = conn.execute("select status from bills where id = %s", (bill_id,)).fetchone()["status"]
     if status == "queued":
         notify.bill_event(conn, bill_id, "queued")
+    elif status == "funded":
+        notify.bill_event(conn, bill_id, "funded")
+        notify.givers_of_bill(conn, bill_id, "funded")
+    elif status == "expired":
+        notify.bill_event(conn, bill_id, "expired")
     return True
 
 
 def reject(conn: psycopg.Connection, bill_id, note: str) -> bool:
     row = conn.execute(
-        "update bills set status = 'rejected', review_note = %s where id = %s and status = 'submitted' returning id",
+        """update bills set status = 'rejected', review_note = %s where id = %s
+           and status in ('submitted', 'in_review', 'needs_info') and amount_raised_cents = 0 returning id""",
         (note, bill_id),
     ).fetchone()
     if row:
@@ -144,7 +162,7 @@ def reject(conn: psycopg.Connection, bill_id, note: str) -> bool:
     return row is not None
 
 
-def remove(conn: psycopg.Connection, bill_id, note: str, max_live: int) -> list[dict]:
+def remove(conn: psycopg.Connection, bill_id, note: str, max_live: int, *, withdrawn: bool = False) -> list[dict]:
     """Takes a bill down. Returns the contributions whose money must be refunded."""
     conn.execute("select id from bills where id = %s for update", (bill_id,))
     if conn.execute("select id from payment_orders where bill_id = %s and status not in ('prepared', 'canceled', 'returned')",
@@ -153,11 +171,12 @@ def remove(conn: psycopg.Connection, bill_id, note: str, max_live: int) -> list[
     conn.execute("update payment_orders set status = 'canceled' where bill_id = %s and status = 'prepared'", (bill_id,))
     row = conn.execute(
         """
-        update bills set status = 'removed', review_note = %s
-        where id = %s and status in ('queued', 'live', 'funded', 'expired')
+        update bills set status = %s, review_note = %s
+        where id = %s and status = any(%s)
         returning id
         """,
-        (note, bill_id),
+        ("withdrawn" if withdrawn else "removed", note, bill_id,
+         ['submitted', 'in_review', 'needs_info', 'queued', 'live'] if withdrawn else ['queued', 'live', 'funded', 'expired', 'in_review', 'needs_info']),
     ).fetchone()
     if row is None:
         return []
@@ -175,7 +194,7 @@ def remove(conn: psycopg.Connection, bill_id, note: str, max_live: int) -> list[
     for refund in refunds:
         jobs.enqueue(conn, "refund", refund["id"])
     conn.execute("update reports set resolved_at = now() where bill_id = %s and resolved_at is null", (bill_id,))
-    notify.bill_event(conn, bill_id, "removed")
+    notify.bill_event(conn, bill_id, "withdrawn" if withdrawn else "removed")
     promote_queued(conn, max_live)
     return refunds
 
@@ -225,6 +244,7 @@ def expire_stale(conn: psycopg.Connection, settings: Settings) -> None:
 _FEED_WHERE = f"""
     b.status = 'live'
       and {ELIGIBLE_SQL}
+      and (b.requester_user_id is null or b.requester_user_id <> %(user)s)
       and (%(categories)s::text[] is null or b.category = any(%(categories)s::text[]))
       and (%(state)s::text is null or b.state = %(state)s::text)
       and (%(max_remaining)s::int is null or b.amount_due_cents - b.amount_raised_cents <= %(max_remaining)s::int)
@@ -368,11 +388,13 @@ def reserve_contribution(
 
     # The row lock makes concurrent givers on one bill take turns, so each one sees the others' holds.
     bill = conn.execute(
-        "select status, amount_due_cents, amount_raised_cents from bills where id = %s for update",
+        "select status, amount_due_cents, amount_raised_cents, requester_user_id from bills where id = %s for update",
         (bill_id,),
     ).fetchone()
     if bill is None or bill["status"] != "live":
         raise ContributionRejected("not_open", "This bill isn't taking contributions anymore.")
+    if str(bill["requester_user_id"]) == str(user_id):
+        raise ContributionRejected("own_bill", "You can't contribute to a bill you submitted.")
     try:
         trust.eligible_verification(conn, bill_id, amount=bill["amount_due_cents"], lock=True)
         trust._no_disputes(conn, bill_id)
@@ -437,7 +459,7 @@ def confirm_payment(
 
     # Lock order is always bill, then contribution, matching reserve_contribution, so the two can't deadlock.
     bill = conn.execute(
-        "select status, amount_due_cents, amount_raised_cents from bills where id = %s for update",
+        "select status, amount_due_cents, amount_raised_cents, requester_user_id from bills where id = %s for update",
         (row["bill_id"],),
     ).fetchone()
     contribution = conn.execute(
@@ -460,7 +482,8 @@ def confirm_payment(
         eligible = True
     except trust.TrustError:
         eligible = False
-    if bill["status"] != "live" or amount > remaining or amount_mismatch or not eligible:
+    if (bill["status"] != "live" or amount > remaining or amount_mismatch or not eligible
+            or contribution["status"] != "pending" or str(bill["requester_user_id"]) == str(contribution["user_id"])):
         # Money arrived for a bill that can't take it: closed, removed, or the hold lapsed and others
         # filled it. Applying it would overpay the biller, so it goes back to the giver instead.
         conn.execute(
@@ -677,7 +700,7 @@ def admin_overview(conn: psycopg.Connection) -> dict:
         for r in conn.execute("select status, count(*) as n from bills group by status").fetchall()
     }
     review = conn.execute(
-        "select * from bills where status = 'submitted' order by created_at"
+        "select * from bills where status in ('submitted', 'in_review', 'needs_info') order by created_at"
     ).fetchall()
     active = conn.execute(
         """

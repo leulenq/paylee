@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct HelpView: View {
+    @Environment(AppModel.self) private var app
     @State private var expanded: String?
 
     private let answers: [(String, String)] = [
@@ -15,8 +16,8 @@ struct HelpView: View {
         ("Does it cost anything?", "No. Paylee never charges the person asking for help."),
         ("Who sees my bill?", "Givers see your first name, your city, the company, the amount, and your story after a reviewer edits out private details. They never see the bill itself, your last name, your email, or your account number."),
         ("How long does review take?", "Usually within two business days. We email you either way."),
-        ("What if I pay part of it myself?", "Tell us the new balance so we never overpay the company."),
-        ("What if it isn't covered by the due date?", "Anything givers raised still goes to the company on your bill."),
+        ("What if I pay part of it myself?", "Report the lower balance, including zero if you paid it all. Paylee pauses new gifts and payment release while a reviewer confirms it with the company."),
+        ("What if it isn't covered by the due date?", "Paylee checks the balance and payment route before applying what was raised. If the company can't accept it safely, the gifts go back to their original payment methods."),
         ("Will I hear from the givers?", "No. Givers stay private, and there's nothing you owe anyone."),
     ]
 
@@ -55,6 +56,9 @@ struct HelpView: View {
                     }
                 }
                 .padding(.top, 16)
+
+                account
+                    .padding(.top, 40)
             }
             .padding(.horizontal, 22)
             .padding(.top, 8)
@@ -63,5 +67,22 @@ struct HelpView: View {
         .scrollIndicators(.hidden)
         .background(CanvasBackground())
         .statusBarBackdrop()
+    }
+
+    // MARK: - Account
+
+    private var account: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionLabel("Account")
+            HStack(spacing: 10) {
+                Button("Sign out") { app.signOut() }
+                    .buttonStyle(.secondary)
+                Button("Switch to giving") {
+                    app.choose(.payer)
+                }
+                .buttonStyle(.secondary)
+                Spacer()
+            }
+        }
     }
 }

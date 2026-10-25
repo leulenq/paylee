@@ -150,7 +150,7 @@ def replace_destination(conn, actor, biller_id, *, portal_url, evidence_id):
 def verify_bill(conn, actor, bill_id, *, biller_id, account_reference, period_label, verified_balance_cents, evidence_id):
     staff.require_role(actor, "reviewer")
     bill = conn.execute("select * from bills where id = %s for update", (bill_id,)).fetchone()
-    if not bill or bill["status"] in ("paid", "removed", "rejected"):
+    if not bill or bill["status"] in ("paid", "removed", "rejected", "withdrawn"):
         raise TrustError("Bill cannot be verified in its current state")
     document = conn.execute("select * from documents where id = %s", (bill["document_id"],)).fetchone()
     if not document or document["scan_status"] != "clean" or not bill["consented_at"]:
@@ -162,6 +162,8 @@ def verify_bill(conn, actor, bill_id, *, biller_id, account_reference, period_la
         raise TrustError("Select an approved biller in the matching category")
     proof = evidence(conn, evidence_id, "debt", bill_id, amount=verified_balance_cents,
                      max_age=timedelta(hours=get_settings().verification_hours))
+    if bill["verification_paused"] and bill["balance_reported_at"] and proof["observed_at"] < bill["balance_reported_at"]:
+        raise TrustError("Obtain a fresh biller confirmation after the requester reported the balance change")
     if verified_balance_cents < bill["amount_raised_cents"]:
         raise TrustError("Balance is below collected contributions; resolve excess funding before reverification")
     account = account_reference.strip()
@@ -177,9 +179,17 @@ def verify_bill(conn, actor, bill_id, *, biller_id, account_reference, period_la
             raise TrustError("Collected funds cannot be reassigned to a different account or debt")
     conn.execute("insert into debt_claims (fingerprint, bill_id) values (%s, %s) on conflict do nothing",
                  (invoice_fp, bill_id))
-    claim = conn.execute("select bill_id from debt_claims where fingerprint = %s", (invoice_fp,)).fetchone()
+    claim = conn.execute("select bill_id from debt_claims where fingerprint = %s for update", (invoice_fp,)).fetchone()
     if str(claim["bill_id"]) != str(bill_id):
-        raise TrustError("This debt has already been submitted under another bill")
+        previous = conn.execute("""select status,
+            exists(select 1 from contributions c where c.bill_id = b.id and c.status in ('pending', 'succeeded', 'refund_pending')) as unsettled,
+            exists(select 1 from payment_orders p where p.bill_id = b.id and p.status not in ('canceled', 'returned')) as active_payment
+            from bills b where id = %s""", (claim["bill_id"],)).fetchone()
+        if previous["status"] not in ("withdrawn", "removed", "rejected") or previous["unsettled"] or previous["active_payment"]:
+            raise TrustError("This debt has already been submitted under another bill")
+        # This changes the active duplicate-prevention claim, never the original request's ownership or evidence.
+        conn.execute("update debt_claims set bill_id = %s where fingerprint = %s", (bill_id, invoice_fp))
+        audit(conn, actor, "debt.closed_claim_reassigned", bill_id, previous_bill_id=str(claim["bill_id"]))
     row = conn.execute(
         """insert into bill_verifications
            (bill_id, biller_id, destination_id, account_ciphertext, account_fingerprint, account_last4,
@@ -197,6 +207,7 @@ def verify_bill(conn, actor, bill_id, *, biller_id, account_reference, period_la
 def eligible_verification(conn, bill_id, *, amount=None, lock=False, require_review=True):
     row = conn.execute(
         """select v.*, br.status as biller_status, br.active_destination_id,
+                  b.verification_paused, b.balance_reported_at,
                   d.portal_url, br.legal_name
            from bills b join bill_verifications v on v.id = b.verification_id
            join billers br on br.id = v.biller_id join payment_destinations d on d.id = v.destination_id
@@ -206,7 +217,11 @@ def eligible_verification(conn, bill_id, *, amount=None, lock=False, require_rev
         raise TrustError("Bill needs verification against an approved current biller destination")
     if row["expires_at"] <= datetime.now(timezone.utc):
         raise TrustError("Bill verification has expired")
-    evidence(conn, row["evidence_id"], "debt", bill_id, amount=row["verified_balance_cents"])
+    if row["verification_paused"] and require_review:
+        raise TrustError("A reported balance change must be independently reviewed before money can move")
+    proof = evidence(conn, row["evidence_id"], "debt", bill_id, amount=row["verified_balance_cents"])
+    if row["verification_paused"] and row["balance_reported_at"] and proof["observed_at"] < row["balance_reported_at"]:
+        raise TrustError("Obtain a fresh biller confirmation after the balance report")
     origin = conn.execute("select d.scan_provider, d.scan_status from bills b join documents d on d.id = b.document_id where b.id = %s",
                           (bill_id,)).fetchone()
     if not origin or origin["scan_status"] != "clean":
@@ -396,7 +411,11 @@ def record_posting(conn, actor, order_id, evidence_id):
                 debit="restricted_payable", credit="payout_in_transit", amount=order["amount_cents"])
     conn.execute("update payment_orders set status = 'applied', posting_evidence_id = %s, applied_at = now() where id = %s",
                  (evidence_id, order_id))
-    conn.execute("update bills set status = 'paid', paid_at = now(), payout_confirmation = %s where id = %s",
+    conn.execute("""update bills set status = case when verification_paused then 'in_review' else 'paid' end,
+                    paid_at = now(), payout_confirmation = %s,
+                    requester_status_note = case when verification_paused then
+                        'A payment was already in progress. Paylee is reconciling your balance update with the company.'
+                        else requester_status_note end where id = %s""",
                  (proof["reference"], order["bill_id"]))
     notify.bill_event(conn, order["bill_id"], "paid")
     notify.givers_of_bill(conn, order["bill_id"], "paid")

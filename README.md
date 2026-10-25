@@ -33,6 +33,11 @@ Run `uv run python -m app.worker` separately and configure ClamAV before opening
 
 Typical loop: upload → scan/extract → independently enroll biller and verify debt → approve publication → collect gifts → reconcile available funding → prepare/release/claim payment → manually pay the approved portal → independently reconcile settlement and account posting. A typed confirmation number can no longer mark a bill paid. In development, requester emails are printed to the server log.
 
+The native requester API is available at `/api/requests`: authenticated upload, private list/detail,
+withdrawal with original-source refunds, and reported balance reductions with a funding/payment pause.
+The app uses live data by default; explicit debug previews remain available. Anonymous web submissions
+are not automatically assigned to an account based on email. See the [requester contract](docs/api/requestor-and-profile.md).
+
 ## Tests
 
 ```sh

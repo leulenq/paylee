@@ -22,7 +22,7 @@ Backend (from `backend/`, uses uv):
 uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 uv run pytest                                   # all tests (needs Postgres running)
 uv run pytest tests/test_contributions.py -k concurrent
-uv run python -m app.seed                       # sample live bills for development
+uv run python -m app.seed                       # unverified sample submissions for development
 ```
 
 iOS (from `SwipeBills/`):
@@ -38,6 +38,8 @@ Debug launch arguments: `-PayleeDevAutoLogin YES` skips sign-in, `-PayleeShowOnb
 All rules live in the backend; the iOS app is a thin client so Android can be added without re-implementing logic.
 
 **Trust infrastructure:** Read `docs/payment-infrastructure.md` before changing funding or biller payment behavior. `trust.py`, `operations.py`, `documents.py`, `ledger.py`, `events.py`, `jobs.py`, `refunds.py`, and `staff.py` implement the closed biller network, evidence, individual MFA accounts, and controlled manual payment workflow. `trust_schema.sql` is an additive migration. Never restore a checkbox-only approval or typed-confirmation-only payment path. Donor receipts are owner-only, and public columns include verification timestamps but no private evidence.
+
+**Requester backend:** `requester_api.py`, `requests.py`, and `intake.py` implement the authenticated contract in `docs/api/requestor-and-profile.md`; `requester_schema.sql` adds ownership, review pauses, and immutable encrypted balance reports. Never link legacy requests by email or trust a submitted owner ID. Requesters cannot fund their own bills, even after switching roles. Balance reports pause all giving/release and require fresh evidence plus approval to resume. Withdrawals queue refunds and preserve uncertain outgoing payments. iOS clears requester caches on account changes and never silently falls back to preview data.
 
 **Money flow** (`backend/app/bills.py`, `api.py`, `payments.py`):
 1. `reserve_contribution` locks the bill row (`SELECT ... FOR UPDATE`), subtracts raised amounts and unexpired `pending` holds, and inserts a `pending` contribution with `expires_at`. That transaction commits before any payment API call, so a slow provider never holds the lock.
@@ -85,4 +87,4 @@ The web templates (`backend/app/templates/base.html`) still use the previous nav
 
 ## Repo note
 
-This folder has no repo of its own; git resolves to the home-folder repo at `/Users/lenquanhone`. Scope git commands to this directory and never `git add .` from home.
+The project now lives at `/Users/lenquanhone/Projects/paylee` and has its own `.git` directory. Respect staged and concurrent changes. Local Compose retains the `swipegofundme` project name to preserve the existing Postgres volume across the rename; do not change that resource identity without a data migration.

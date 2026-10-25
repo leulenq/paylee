@@ -16,6 +16,8 @@ docker compose --profile app up -d --build
 
 ClamAV can take several minutes to initialize its signatures and needs approximately 4 GB of memory. Its port is not exposed to the host. The official 1.4 image runs as amd64, including through Docker emulation on Apple Silicon.
 
+The local Compose project keeps its historical `swipegofundme` resource name so renaming the repository to `paylee` does not create an empty replacement database or collide with the existing stack. Production uses its separately configured managed database.
+
 If port 8000 is already occupied:
 
 ```sh
@@ -23,6 +25,13 @@ PAYLEE_HTTP_PORT=18080 docker compose --profile app up -d
 ```
 
 Use the same port setting on subsequent Compose commands that recreate the API. The API listens on localhost only.
+
+To populate a simulator's development account, read its `PayleeDevDeviceID` preference and run
+`python -m app.seed_demo --device-id DEVICE_ID` in the API container. This repeatable command adds six
+swipe bills, two open contributions, three applied-payment examples, one funded case, and one refund.
+Everything is explicitly labeled Demo and uses synthetic, development-unverified evidence and disabled
+fixture operators. It refuses production, real collection providers, external email/push delivery, or S3.
+The ordinary `app.seed` command still creates unverified intake submissions only.
 
 Provision three different people using the same runtime environment/encryption keys as the application:
 
@@ -67,6 +76,13 @@ In a separate terminal, run `uv run python -m app.worker`. Configure a local `cl
 15. **Confirm posting:** independent treasury obtains biller evidence that the exact amount was applied to the intended account. Only this transition sets the bill to `paid`, sends payment confirmation, and credits completion metrics for fully funded bills.
 
 The JSON operations endpoints are under `/admin/ops`; their models appear in `/docs`. Browser mutations require the per-staff CSRF token supplied by the console. Donor endpoints retain their existing authentication and contribution contract.
+
+Authenticated requesters use `/api/requests` for multipart upload and their own history/detail, with
+`/{id}/withdraw` and `/{id}/balance` for lifecycle updates. Ownership is immutable once assigned; a
+role switch never permits funding an owned bill. Web and mobile intake share validation and encrypted
+quarantine. A reported lower balance pauses giving and payment release and requires fresh independent
+evidence plus review. Reviewers see these cases and encrypted report notes in the operations console.
+The additive `requester_schema.sql` migration must be applied before the updated runtime grants.
 
 ## Evidence and privacy
 

@@ -18,9 +18,10 @@ from pydantic import BaseModel, Field
 
 from . import bills, db, documents, staff, trust, vault
 from .config import get_settings
+from .intake import detect_upload_type as _detect_upload_type
 from .money import MAX_BILL_CENTS
 from .security import admin_csrf_token, require_admin
-from .web import _detect_upload_type, templates
+from .web import templates
 
 router = APIRouter(prefix="/admin/ops", dependencies=[Depends(require_admin)])
 
@@ -45,8 +46,9 @@ def state(request: Request):
         result = {
             "billers": conn.execute("select id, legal_name, category, status, official_domain, active_destination_id from billers order by created_at desc limit 100").fetchall(),
             "bills": conn.execute("""select b.id, b.biller_name, b.status, b.category, b.amount_due_cents,
-                b.amount_raised_cents, b.document_id, b.verification_id, d.scan_status, d.extraction_status
-                from bills b left join documents d on d.id = b.document_id order by b.created_at desc limit 100""").fetchall(),
+                b.amount_raised_cents, b.document_id, b.verification_id, b.verification_paused,
+                b.reported_balance_cents, b.balance_reported_at, d.scan_status, d.extraction_status
+                from bills b left join documents d on d.id = b.document_id order by b.verification_paused desc, b.created_at desc limit 100""").fetchall(),
             "documents": conn.execute("select id, purpose, scan_status, extraction_status, created_at from documents order by created_at desc limit 100").fetchall(),
             "evidence": conn.execute("select id, kind, subject, amount_cents, observed_at from evidence order by created_at desc limit 100").fetchall(),
             "contributions": conn.execute("""select id, bill_id, amount_cents, received_amount_cents, status,
@@ -59,6 +61,18 @@ def state(request: Request):
             "audit": conn.execute("select id, actor_id, action, object_id, created_at from audit_events order by id desc limit 50").fetchall(),
         }
     return result
+
+
+@router.get("/bills/{bill_id}/balance-reports")
+def balance_reports(bill_id: UUID, request: Request):
+    current = actor(request)
+    staff.require_role(current, "reviewer", "treasury")
+    with db.transaction() as conn:
+        rows = conn.execute("select id, amount_cents, note_ciphertext, created_at from balance_reports where bill_id = %s order by created_at desc",
+                            (bill_id,)).fetchall()
+        trust.audit(conn, current, "request.balance_reports_accessed", bill_id)
+    return {"reports": [{"id": row["id"], "amount_cents": row["amount_cents"], "note": vault.decrypt(row["note_ciphertext"]),
+                         "created_at": row["created_at"]} for row in rows]}
 
 
 class RetryInput(BaseModel):

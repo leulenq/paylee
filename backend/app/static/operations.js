@@ -45,8 +45,15 @@
         table.append(head);
         for (const row of rows) {
           const tr = document.createElement('tr');
-          for (const value of Object.values(row)) {
-            const td = document.createElement('td'); td.textContent = value === null ? '—' : String(value); tr.append(td);
+          for (const [key, value] of Object.entries(row)) {
+            const td = document.createElement('td');
+            if (name === 'bills' && key === 'verification_paused' && value) {
+              const link = document.createElement('a');
+              link.href = '/admin/ops/bills/' + encodeURIComponent(row.id) + '/balance-reports';
+              link.textContent = 'Paused — review private balance reports';
+              td.append(link);
+            } else td.textContent = value === null ? '—' : String(value);
+            tr.append(td);
           }
           table.append(tr);
         }
