@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% set closed = bill.status in ('funded', 'paid') %}
+{% block title %}{{ bill.biller_name }} bill · Paylee{% endblock %}
+{% block meta %}
+  {% if bill.status == 'funded' %}
+  {% set preview_title = bill.requester_first_name ~ "'s " ~ bill.biller_name ~ " bill is fully funded" %}
+  {% elif bill.status == 'paid' %}
+  {% set preview_title = "Payment applied to " ~ bill.requester_first_name ~ "'s " ~ bill.biller_name ~ " bill" %}
+  {% else %}
+  {% set preview_title = remaining_cents|dollars ~ " left on " ~ bill.requester_first_name ~ "'s " ~ bill.biller_name ~ " bill" %}
+  {% endif %}
+  <meta name="description" content="{{ bill.story|truncate(180) }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Paylee">
+  <meta property="og:title" content="{{ preview_title }}">
+  <meta property="og:description" content="{{ bill.story|truncate(180) }}">
+  <meta property="og:url" content="{{ page_url }}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="{{ preview_title }}">
+  <meta name="twitter:description" content="{{ bill.story|truncate(180) }}">
+  <style>
+    .statement {
+      position: relative; overflow: hidden; color: var(--paper);
+      background: linear-gradient(160deg, var(--navy-glow), var(--navy) 60%);
+      border-radius: 32px; padding: 30px;
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 40%, transparent), 0 24px 60px rgba(11, 28, 44, .28);
+    }
+    .statement::after {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(circle at 100% 0, color-mix(in srgb, var(--gold) 20%, transparent), transparent 55%);
+    }
+    .statement .eyebrow { color: color-mix(in srgb, var(--paper) 70%, transparent); display: flex; justify-content: space-between; }
+    .biller { font: 600 19px/1.3 var(--sans); margin-top: 22px; }
+    .amount { font: 400 76px/1 var(--serif); margin-top: 4px; }
+    .amount sup { font-size: .48em; vertical-align: .9em; }
+    .sub { color: color-mix(in srgb, var(--paper) 60%, transparent); font-size: 14px; }
+    .bar { height: 4px; border-radius: 4px; background: color-mix(in srgb, var(--paper) 12%, transparent); margin: 22px 0 9px; }
+    .bar > span { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--gold-deep), var(--gold)); box-shadow: 0 0 10px var(--gold); }
+    .quote { font: italic 400 26px/1.25 var(--serif); margin: 28px 0 24px; }
+    .who { display: flex; align-items: center; gap: 12px; }
+    .initial { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font: 400 22px/1 var(--serif);
+      box-shadow: inset 0 0 0 1px var(--gold); background: color-mix(in srgb, var(--gold) 12%, transparent); }
+    .cta { margin-top: 28px; text-align: center; }
+    .cta p { color: var(--muted); font-size: 14px; }
+  </style>
+{% endblock %}
+{% block content %}
+<article class="statement">
+  <div class="eyebrow"><span>{{ bill.category }}</span><span>Due {{ bill.due_date.strftime('%b %-d') }}</span></div>
+  <div class="biller">{{ bill.biller_name }} <span style="color: var(--gold)">&#10003; verified</span></div>
+  {% if closed %}
+  <div class="amount">{{ 'Payment applied' if bill.status == 'paid' else 'Fully funded' }}</div>
+  <div class="sub">{{ bill.amount_raised_cents|dollars }} {{ 'applied to the biller account' if bill.status == 'paid' else 'raised; payment has not yet been confirmed' }}</div>
+  {% else %}
+  {% set dollars = (remaining_cents // 100) %}
+  <div class="amount">${{ "{:,}".format(dollars) }}<sup>.{{ "%02d"|format(remaining_cents % 100) }}</sup></div>
+  <div class="sub">left to close this bill</div>
+  {% endif %}
+  <div class="bar"><span style="width: {{ percent }}%"></span></div>
+  <div class="sub">{{ bill.amount_raised_cents|dollars }} raised of {{ bill.amount_due_cents|dollars }}</div>
+  {% if bill.verified_at %}<div class="sub">Verified {{ bill.verified_at.strftime('%b %-d, %Y') }}</div>{% endif %}
+  <p class="quote">&ldquo;{{ bill.story }}&rdquo;</p>
+  <div class="who">
+    <div class="initial" aria-hidden="true">{{ bill.requester_first_name[:1] }}</div>
+    <div><strong>{{ bill.requester_first_name }}</strong><div class="sub">{{ bill.city }}</div></div>
+  </div>
+</article>
+<div class="cta">
+  {% if bill.status == 'live' %}
+  <a class="button" href="paylee://bill/{{ bill.id }}">Chip in on Paylee</a>
+  {% endif %}
+  <p>Every bill on Paylee is checked by a person, and money is paid straight to the company on the bill.</p>
+</div>
+{% endblock %}

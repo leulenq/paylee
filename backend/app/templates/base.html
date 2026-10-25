@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Paylee{% endblock %}</title>
+  {% block meta %}{% endblock %}
+  <style>
+    @font-face { font-family: "Instrument Serif"; src: url("/static/fonts/InstrumentSerif-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; font-display: swap; }
+    @font-face { font-family: "Instrument Serif"; src: url("/static/fonts/InstrumentSerif-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; font-display: swap; }
+    @font-face { font-family: "Manrope"; src: url("/static/fonts/Manrope-Regular.ttf") format("truetype"); font-weight: 400; font-display: swap; }
+    @font-face { font-family: "Manrope"; src: url("/static/fonts/Manrope-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: swap; }
+    @font-face { font-family: "Manrope"; src: url("/static/fonts/Manrope-Bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+
+    :root {
+      --navy: #0B1C2C;
+      --navy-glow: #17324D;
+      --gold: #C9A86A;
+      --gold-deep: #A88A4F;
+      --gold-text: #8A6A2E;
+      --paper: #F8F6F2;
+      --ink: #1A1A1A;
+      --muted: #6B6760;
+      --surface: #FFFFFF;
+      --line: #E5DED2;
+      --danger: #A3322A;
+      --bg: var(--paper);
+      --fg: var(--ink);
+      --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+      --sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #08141F;
+        --fg: var(--paper);
+        --muted: #9AA6B2;
+        --surface: #102233;
+        --line: #22374B;
+        --gold-text: var(--gold);
+        --danger: #F0857A;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(ellipse 120% 420px at 50% 0, color-mix(in srgb, var(--gold) 12%, transparent), transparent) no-repeat, var(--bg);
+      color: var(--fg);
+      font: 16px/1.55 var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    main { max-width: 680px; margin: 0 auto; padding: 28px 16px 72px; }
+    main.wide { max-width: 1120px; }
+    header.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 36px; }
+    .mark {
+      width: 34px; height: 34px; border-radius: 10px;
+      background: linear-gradient(var(--navy-glow), var(--navy));
+      color: var(--gold); display: grid; place-items: center;
+      font: 400 27px/1 var(--serif); padding-top: 2px;
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 55%, transparent);
+    }
+    .wordmark { font: 400 30px/1 var(--serif); color: var(--fg); }
+    .eyebrow {
+      font: 700 11px/1.4 var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--gold-text);
+      margin: 0 0 6px;
+    }
+    h1, h2, h3 { font-family: var(--serif); font-weight: 400; line-height: 1.05; margin: 0; }
+    h1 { font-size: clamp(40px, 9vw, 56px); margin-bottom: 14px; }
+    h2 { font-size: 30px; margin: 44px 0 16px; }
+    p.lede { color: var(--muted); font-size: 17px; margin: 0 0 28px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--line); border-radius: 24px;
+      padding: 24px; margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(11, 28, 44, .06), 0 12px 32px rgba(11, 28, 44, .08);
+    }
+    .notice {
+      border: 1px solid var(--line); border-left: 3px solid var(--gold); background: var(--surface);
+      padding: 14px 18px; border-radius: 14px; margin-bottom: 22px;
+    }
+    label { display: block; font-weight: 700; font-size: 14px; margin: 20px 0 8px; }
+    .hint { font-weight: 400; color: var(--muted); }
+    input[type=text], input[type=email], input[type=date], select, textarea {
+      width: 100%; padding: 14px 16px; font: inherit; color: var(--fg);
+      background: var(--bg); border: 1px solid var(--line); border-radius: 14px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    textarea { min-height: 150px; resize: vertical; }
+    input:focus, select:focus, textarea:focus {
+      outline: none; border-color: var(--gold);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--gold) 22%, transparent);
+    }
+    .check { display: flex; gap: 12px; align-items: flex-start; font-weight: 400; font-size: 15px; }
+    .check input { margin-top: 4px; accent-color: var(--navy); width: 18px; height: 18px; }
+    .error { color: var(--danger); font-size: 14px; margin-top: 6px; }
+    button, .button {
+      display: inline-block; border: 0; border-radius: 999px; cursor: pointer;
+      padding: 15px 28px; font: 700 16px/1 var(--sans); text-decoration: none;
+      background: linear-gradient(var(--gold), var(--gold-deep)); color: var(--navy);
+      box-shadow: 0 8px 22px color-mix(in srgb, var(--gold) 35%, transparent);
+      transition: transform .12s;
+    }
+    button:active, .button:active { transform: scale(.97); }
+    button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); box-shadow: none; padding: 11px 20px; font-size: 14px; }
+    button.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); box-shadow: none; padding: 11px 20px; font-size: 14px; }
+    .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+    .row > * { flex: 1 1 200px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; font: 700 11px/1.4 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .table-wrap { overflow-x: auto; }
+    .pill {
+      display: inline-block; padding: 3px 11px; border-radius: 999px; font-size: 12px; font-weight: 700;
+      background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--gold-text);
+    }
+    .muted { color: var(--muted); }
+    a { color: var(--gold-text); }
+  </style>
+</head>
+<body>
+  <main class="{% block main_class %}{% endblock %}">
+    <header class="brand">
+      <div class="mark" aria-hidden="true">P</div>
+      <div class="wordmark">Paylee</div>
+    </header>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

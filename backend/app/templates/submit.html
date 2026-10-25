@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Get help with a bill · Paylee{% endblock %}
+{% block content %}
+<p class="eyebrow">For people with a bill</p>
+<h1>Get help with a bill</h1>
+<p class="lede">Share one bill and a short story. If givers chip in, Paylee pays the company on your bill directly. The money never goes to a bank account.</p>
+
+<div class="notice">
+  <strong>What givers see:</strong> your first name, your city, the company, the amount, and your story.
+  They never see the bill itself, your email, or your account number.
+</div>
+
+{% if errors %}
+<div class="notice" role="alert"><strong>Please fix the highlighted fields below.</strong></div>
+{% endif %}
+
+<form class="card" method="post" action="/submit" enctype="multipart/form-data" novalidate>
+  <div class="row">
+    <div>
+      <label for="first_name">First name</label>
+      <input id="first_name" name="first_name" type="text" autocomplete="given-name" value="{{ values.first_name or '' }}" required>
+      {% if errors.first_name %}<div class="error">{{ errors.first_name }}</div>{% endif %}
+    </div>
+    <div>
+      <label for="city">City</label>
+      <input id="city" name="city" type="text" autocomplete="address-level2" placeholder="Lexington" value="{{ values.city or '' }}" required>
+      {% if errors.city %}<div class="error">{{ errors.city }}</div>{% endif %}
+    </div>
+    <div>
+      <label for="state">State</label>
+      <select id="state" name="state" autocomplete="address-level1" required>
+        <option value="">Choose</option>
+        {% for code, name in states.items() %}
+        <option value="{{ code }}" {% if values.state == code %}selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+      {% if errors.state %}<div class="error">{{ errors.state }}</div>{% endif %}
+    </div>
+  </div>
+
+  <label for="email">Email <span class="hint">· private, only used to contact you about this bill</span></label>
+  <input id="email" name="email" type="email" autocomplete="email" value="{{ values.email or '' }}" required>
+  {% if errors.email %}<div class="error">{{ errors.email }}</div>{% endif %}
+
+  <div class="row">
+    <div>
+      <label for="category">Kind of bill</label>
+      <select id="category" name="category" required>
+        <option value="">Choose one</option>
+        {% for c in categories %}
+        <option value="{{ c }}" {% if values.category == c %}selected{% endif %}>{{ c|capitalize }}</option>
+        {% endfor %}
+      </select>
+      {% if errors.category %}<div class="error">{{ errors.category }}</div>{% endif %}
+    </div>
+    <div>
+      <label for="biller_name">Company on the bill</label>
+      <input id="biller_name" name="biller_name" type="text" placeholder="Kentucky Utilities" value="{{ values.biller_name or '' }}" required>
+      {% if errors.biller_name %}<div class="error">{{ errors.biller_name }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <label for="amount">Amount due</label>
+      <input id="amount" name="amount" type="text" inputmode="decimal" placeholder="212.50" value="{{ values.amount or '' }}" required>
+      {% if errors.amount %}<div class="error">{{ errors.amount }}</div>{% endif %}
+    </div>
+    <div>
+      <label for="due_date">Due date</label>
+      <input id="due_date" name="due_date" type="date" value="{{ values.due_date or '' }}" required>
+      {% if errors.due_date %}<div class="error">{{ errors.due_date }}</div>{% endif %}
+    </div>
+  </div>
+
+  <label for="story">Your story <span class="hint">· 40 to 800 characters. Don't include your last name, address, or account numbers.</span></label>
+  <textarea id="story" name="story" maxlength="800" required>{{ values.story or '' }}</textarea>
+  {% if errors.story %}<div class="error">{{ errors.story }}</div>{% endif %}
+
+  <label for="bill_file">Photo or PDF of the bill <span class="hint">· JPG, PNG, HEIC, or PDF up to 10 MB</span></label>
+  <input id="bill_file" name="bill_file" type="file" accept="image/jpeg,image/png,image/heic,application/pdf" required>
+  {% if errors.bill_file %}<div class="error">{{ errors.bill_file }}</div>{% endif %}
+
+  <label class="check">
+    <input type="checkbox" name="consent" value="true">
+    <span>This bill is in my name, and I understand a reviewer will check it before it goes live.</span>
+  </label>
+  {% if errors.consent %}<div class="error">{{ errors.consent }}</div>{% endif %}
+
+  <p><button type="submit">Submit for review</button></p>
+</form>
+{% endblock %}

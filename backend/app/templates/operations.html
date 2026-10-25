@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Payment operations · Paylee{% endblock %}
+{% block main_class %}wide{% endblock %}
+{% macro picker(name, label, source) -%}
+<label>{{ label }}<select name="{{ name }}" data-source="{{ source }}" required></select></label>
+{%- endmacro %}
+{% macro input(name, label, type='text') -%}
+<label>{{ label }}<input name="{{ name }}" type="{{ type }}" required {% if type == 'number' %}min="1" step="1"{% endif %}></label>
+{%- endmacro %}
+{% macro check(name, label) -%}
+<label class="check"><input name="{{ name }}" type="checkbox" required><span>{{ label }}</span></label>
+{%- endmacro %}
+{% block content %}
+<h1>Payment operations</h1>
+<p class="lede">{{ actor.username }} · {{ actor.roles|join(', ') }}. Every approval is recorded under your account.</p>
+<p><a href="/admin">Bill review queue</a> · <a href="#evidence">Evidence</a> · <a href="#billers">Billers</a> · <a href="#bills">Verification</a> · <a href="#payments">Payments</a> · <a href="#records">Records</a></p>
+<form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Sign out</button></form>
+<p id="notice" role="status" aria-live="polite">Loading records…</p>
+<pre id="result" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite"></pre>
+<button type="button" id="clear-result" class="secondary">Clear result</button>
+
+<h2 id="evidence">1. Supporting evidence</h2>
+<p>Uploads are quarantined until the document worker scans them. For biller enrollment, attach the creditor identity and return-to-origin agreement. For debt verification, attach an independently obtained balance confirmation or documented billing-office verification.</p>
+<form data-upload class="card"><label>Supporting document<input name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.heic" required></label><button>Upload for scanning</button></form>
+<details class="card"><summary>Record a verified observation</summary>
+<form data-endpoint="/evidence">
+<label>Evidence type<select name="kind" required><option>biller</option><option>debt</option><option>balance</option><option>funding</option><option>submission</option><option>settlement</option><option>posting</option><option>return</option><option>non_execution</option></select></label>
+{{ picker('document_id', 'Clean supporting document', 'clean_documents') }}
+{{ input('subject', 'Subject: official domain for a biller; otherwise the bill, contribution, or payment ID') }}
+{{ input('reference', 'Confirmation or evidence reference') }}
+{{ input('source', 'Independently established source (contact, statement, or provider)') }}
+<label>Observed amount in cents (omit for biller evidence)<input name="amount_cents" type="number" min="1" step="1"></label>
+<label>When the source confirmed it<input name="observed_at" type="datetime-local" step="1" required></label>
+<button type="button" data-observed-now>Use current time</button>
+<button>Record evidence</button>
+</form></details>
+
+{% if 'reviewer' in actor.roles %}
+<h2 id="billers">2. Biller enrollment</h2>
+<details class="card"><summary>Enroll an institutional biller</summary><form data-endpoint="/billers">
+{{ input('legal_name', 'Verified legal name') }}
+<label>Category<select name="category"><option>utilities</option><option>internet</option><option>phone</option><option>rent</option><option>medical</option><option>other</option></select></label>
+{{ input('official_domain', 'Official domain (for example, utility.example)') }}
+{{ input('portal_url', 'Official HTTPS payment portal', 'url') }}
+{{ picker('evidence_id', 'Creditor and refund agreement evidence', 'biller_evidence') }}
+{{ check('institutional_creditor_confirmed', 'I independently verified this institutional creditor and its payment destination.') }}
+{{ check('return_to_origin_agreement_confirmed', 'The documented assistance process returns credits and refunds to the payment program, including account closures.') }}
+<button>Submit for second-person approval</button></form></details>
+<details class="card"><summary>Replace a payment destination</summary><form data-endpoint="/billers/{biller_id}/destination">
+{{ picker('biller_id', 'Biller', 'billers') }}{{ input('portal_url', 'New verified HTTPS portal', 'url') }}
+{{ picker('evidence_id', 'Independent destination verification evidence', 'biller_evidence') }}
+<p>Changing a destination suspends eligibility until a second person approves it. Existing instructions cannot switch destinations.</p><button>Submit new destination</button>
+</form></details>
+{% endif %}
+{% if 'payments' in actor.roles %}
+<form class="card" data-endpoint="/billers/{biller_id}/approve">{{ picker('biller_id', 'Biller to independently approve', 'billers') }}<button>Approve biller</button></form>
+{% endif %}
+<form class="card" data-endpoint="/billers/{biller_id}/suspend">{{ picker('biller_id', 'Biller to suspend', 'billers') }}<button class="danger">Suspend payments</button></form>
+
+{% if 'reviewer' in actor.roles %}
+<h2 id="bills">3. Verify and publish a bill</h2>
+<details class="card"><summary>Verify a submitted debt</summary><form data-endpoint="/bills/{bill_id}/verify">
+{{ picker('bill_id', 'Bill', 'bills') }}{{ picker('biller_id', 'Approved biller', 'approved_billers') }}
+{{ input('account_reference', 'Verified biller customer account reference') }}
+{{ input('period_label', 'Canonical invoice or billing period (reuse the same format for duplicates)') }}
+{{ input('verified_balance_cents', 'Eligible outstanding balance in cents', 'number') }}
+{{ picker('evidence_id', 'Independent debt evidence', 'debt_evidence') }}
+{{ check('identity_and_account_holder_confirmed', 'Requester identity and relationship to the account holder are verified.') }}
+{{ check('independently_confirmed_debt', 'The biller independently confirmed this account and unpaid balance.') }}
+{{ check('third_party_payment_and_refunds_confirmed', 'Third-party payment, allocation, and controlled refund handling are confirmed.') }}
+{{ check('no_pending_insurance_or_refundable_deposits', 'The eligible debt excludes unresolved insurance, refundable deposits, and related-party payments.') }}
+<button>Record verification</button></form></details>
+<details class="card"><summary>Approve the verified bill for givers</summary><form data-endpoint="/bills/{bill_id}/approve">
+{{ picker('bill_id', 'Verified bill', 'bills') }}{{ input('amount_due_cents', 'Approved balance in cents', 'number') }}
+<label>Public story<textarea name="story" minlength="10" maxlength="800" required></textarea></label>
+{{ check('private_information_removed', 'The story has no private contact, account, address, or medical details.') }}
+<button>Approve for publication</button></form></details>
+{% endif %}
+
+<h2 id="payments">4. Funding and payment</h2>
+{% if 'treasury' in actor.roles %}
+<details class="card"><summary>Reconcile a contribution to available program funds</summary><form data-endpoint="/contributions/{contribution_id}/reconcile">
+{{ picker('contribution_id', 'Collected contribution', 'contributions') }}{{ picker('evidence_id', 'Funding settlement evidence', 'funding_evidence') }}
+<p>Confirm the full contribution is available in the segregated program after fees and reserves. A checkout receipt alone is insufficient.</p><button>Reconcile funding</button></form></details>
+{% endif %}
+{% if 'reviewer' in actor.roles or 'payments' in actor.roles %}
+<form class="card" data-endpoint="/bills/{bill_id}/payments">{{ picker('bill_id', 'Funded bill', 'bills') }}<button>Prepare immutable payment instruction</button></form>
+{% endif %}
+{% if 'payments' in actor.roles %}
+<details class="card"><summary>Independently release a prepared payment</summary><form data-endpoint="/payments/{order_id}/release">
+{{ picker('order_id', 'Prepared payment', 'payments') }}{{ picker('evidence_id', 'Fresh balance evidence', 'balance_evidence') }}
+<p>The balance confirmation must be less than 15 minutes old. You must be a different person from the preparer and debt verifier.</p><button>Release payment</button></form></details>
+<details class="card"><summary>Claim a released payment for manual execution</summary><form data-endpoint="/payments/{order_id}/claim" data-sensitive>
+{{ picker('order_id', 'Released payment', 'payments') }}
+<p>Claim once, then pay the exact amount against the specified account using the official portal and approved program funds. If the portal response is uncertain, investigate; do not retry or use another rail. Claiming does not move money.</p><button>Claim and reveal payment instruction</button></form></details>
+<details class="card"><summary>Record the portal payment</summary><form data-endpoint="/payments/{order_id}/submit">
+{{ picker('order_id', 'Claimed payment', 'payments') }}{{ picker('evidence_id', 'Portal submission evidence', 'submission_evidence') }}
+{{ input('external_ref', 'Unique biller payment reference') }}<button>Record submission</button></form></details>
+<form class="card" data-endpoint="/payments/{order_id}/cancel">{{ picker('order_id', 'Unreleased instruction only', 'payments') }}<button class="secondary">Cancel prepared instruction</button></form>
+{% endif %}
+{% if 'treasury' in actor.roles %}
+<details class="card"><summary>Resolve an unsubmitted instruction that was never executed</summary><form data-endpoint="/payments/{order_id}/resolve-not-executed">
+{{ picker('order_id', 'Released or claimed payment', 'payments') }}{{ picker('evidence_id', 'Independent non-execution evidence', 'non_execution_evidence') }}
+{{ check('no_payment_or_pending_instruction_confirmed', 'I independently confirmed that no payment or pending instruction exists at the provider and biller.') }}
+<p>A timeout or missing receipt alone is insufficient. A different person must confirm the outcome.</p><button>Confirm no execution and cancel</button></form></details>
+{% for action, label, kind in [('settle', 'Confirm payment settlement', 'settlement'), ('apply', 'Confirm payment applied to the account', 'posting'), ('return', 'Confirm full biller return to the program', 'return')] %}
+<details class="card"><summary>{{ label }}</summary><form data-endpoint="/payments/{order_id}/{{ action }}">
+{{ picker('order_id', 'Payment', 'payments') }}{{ picker('evidence_id', 'Matching evidence', kind ~ '_evidence') }}
+<p>Use independently obtained evidence. The payment executor cannot reconcile their own payment.</p><button>{{ label }}</button></form></details>
+{% endfor %}
+{% endif %}
+
+<h2 id="records">5. Operational records</h2>
+<details class="card"><summary>Retry a reconciled failed or waiting job</summary><form data-endpoint="/jobs/{job_id}/retry">
+{{ picker('job_id', 'Job', 'jobs') }}{{ input('reason', 'What was investigated and corrected?') }}
+<p>Reviewers retry document jobs; treasury retries provider events and refunds. Running jobs cannot be stolen.</p><button>Queue retry</button></form></details>
+<button type="button" id="refresh" class="secondary">Refresh records</button>
+<div id="tables"></div>
+<script src="/static/operations.js" defer data-csrf="{{ csrf }}"></script>
+{% endblock %}

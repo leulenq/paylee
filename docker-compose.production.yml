@@ -1,0 +1,55 @@
+# Standalone production container topology. Supply the approved program's secrets through
+# backend/.env.production (never commit it), or replace env_file with your orchestrator's secret store.
+# A trusted HTTPS ingress must forward to 127.0.0.1:8000. Postgres and S3 are external managed services.
+services:
+  api:
+    build: ./backend
+    env_file: ./backend/.env.production
+    environment: &runtime
+      ENVIRONMENT: production
+      SCHEMA_AUTO_APPLY: "false"
+      ALLOW_DEV_LOGIN: "false"
+      PAYMENT_PROVIDER: stripe
+      STORAGE_PROVIDER: s3
+      MALWARE_SCANNER: clamav
+      CLAMD_HOST: clamav
+      EMAIL_PROVIDER: smtp
+    ports: ["127.0.0.1:8000:8000"]
+    read_only: true
+    tmpfs: ["/tmp:mode=1777,size=64m"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/srv/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      retries: 3
+    logging: &logs
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  worker:
+    build: ./backend
+    command: ["/srv/.venv/bin/python", "-m", "app.worker"]
+    env_file: ./backend/.env.production
+    environment: *runtime
+    read_only: true
+    tmpfs: ["/tmp:mode=1777,size=64m"]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      clamav: {condition: service_healthy}
+    restart: unless-stopped
+    logging: *logs
+  clamav:
+    image: clamav/clamav:1.4
+    platform: linux/amd64
+    volumes: ["clamav_signatures:/var/lib/clamav"]
+    mem_limit: 4g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "3"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+    logging: *logs
+volumes:
+  clamav_signatures:

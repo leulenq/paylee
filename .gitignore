@@ -1,0 +1,15 @@
+.DS_Store
+
+# Backend
+backend/.venv/
+backend/.env
+backend/.env.*
+!backend/.env.example
+backend/uploads/
+__pycache__/
+.pytest_cache/
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate

@@ -1,0 +1,75 @@
+services:
+  api:
+    profiles: ["app"]
+    build: ./backend
+    environment: &app_environment
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql://swipebills:swipebills@db:5432/swipebills
+      PUBLIC_BASE_URL: http://127.0.0.1:${PAYLEE_HTTP_PORT:-8000}
+      UPLOAD_DIR: /srv/uploads
+      SESSION_SECRET: ${SESSION_SECRET:-local-compose-session-secret-do-not-use-in-production}
+      PAYMENT_PROVIDER: fake
+      MALWARE_SCANNER: clamav
+      CLAMD_HOST: clamav
+      OCR_PROVIDER: manual
+    ports:
+      - "127.0.0.1:${PAYLEE_HTTP_PORT:-8000}:8000"
+    volumes:
+      - uploads:/srv/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/srv/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      retries: 6
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+  worker:
+    profiles: ["app"]
+    build: ./backend
+    command: ["/srv/.venv/bin/python", "-m", "app.worker"]
+    environment: *app_environment
+    volumes:
+      - uploads:/srv/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+  clamav:
+    profiles: ["app"]
+    image: clamav/clamav:1.4
+    platform: linux/amd64
+    volumes:
+      - clamav_signatures:/var/lib/clamav
+    # No host port: the unauthenticated scanning protocol stays on the private network.
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "3"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+    restart: unless-stopped
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: swipebills
+      POSTGRES_PASSWORD: swipebills
+      POSTGRES_DB: swipebills
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U swipebills"]
+      interval: 2s
+      retries: 30
+
+volumes:
+  pgdata:
+  uploads:
+  clamav_signatures:

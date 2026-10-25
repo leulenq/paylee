@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Admin · Paylee{% endblock %}
+{% block main_class %}wide{% endblock %}
+{% block content %}
+<h1>Admin</h1>
+<p><a href="/admin/ops">Open verified biller and payment operations</a> · <a href="/admin/login">Individual staff sign-in</a></p>
+<p class="lede">
+  {{ counts.get('submitted', 0) }} to review ·
+  {{ counts.get('queued', 0) }} waitlisted ·
+  {{ counts.get('live', 0) }} / {{ max_live }} live ·
+  {{ counts.get('funded', 0) }} to pay out ·
+  {{ counts.get('paid', 0) }} paid
+</p>
+{% if message %}<div class="notice" role="status">{{ message }}</div>{% endif %}
+
+<p class="eyebrow">Operations</p>
+<h2>Review queue</h2>
+{% for b in review %}
+<div class="card">
+  <p>
+    <span class="pill">{{ b.category|capitalize }}</span>
+    <strong>{{ b.requester_first_name }}</strong> · {{ b.city }} · {{ b.requester_email }}
+    · claimed {{ b.claimed_amount_cents|dollars }} · due {{ b.due_date }}
+    · <a href="/admin/uploads/{{ b.id }}" target="_blank" rel="noopener">Open bill</a>
+  </p>
+  <form method="post" action="/admin/bills/{{ b.id }}/approve">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row">
+      <div><label>Company (as on bill)</label><input type="text" name="biller_name" value="{{ b.biller_name }}"></div>
+      <div><label>Verified amount due</label><input type="text" name="amount_due" value="{{ '%.2f'|format(b.claimed_amount_cents / 100) }}"></div>
+    </div>
+    <label>Story (edit out any last names, addresses, or account numbers)</label>
+    <textarea name="story">{{ b.story }}</textarea>
+    <label class="check"><input type="checkbox" name="checked" value="true">
+      <span>The bill looks genuine, the name matches, the company is real, and the story has no private details.</span></label>
+    <p><button type="submit">Approve</button></p>
+  </form>
+  <form method="post" action="/admin/bills/{{ b.id }}/reject" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div><input type="text" name="note" placeholder="Reason (internal)"></div>
+    <div><button class="danger" type="submit">Reject</button></div>
+  </form>
+</div>
+{% else %}
+<p class="muted">Nothing to review.</p>
+{% endfor %}
+
+<h2>Pay out to billers</h2>
+{% if payouts %}
+<div class="table-wrap"><table>
+  <tr><th>Company</th><th>Raised</th><th>Requester</th><th>Status</th><th>Confirmation</th></tr>
+  {% for b in payouts %}
+  <tr>
+    <td>{{ b.biller_name }} · <a href="/admin/uploads/{{ b.id }}" target="_blank" rel="noopener">bill</a></td>
+    <td>{{ b.amount_raised_cents|dollars }} of {{ b.amount_due_cents|dollars }}</td>
+    <td>{{ b.requester_first_name }} · {{ b.requester_email }}</td>
+    <td><span class="pill">{{ b.status }}</span></td>
+    <td><a href="/admin/ops">Verify funding, release payment, and reconcile posting</a></td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% else %}
+<p class="muted">No bills waiting for payout.</p>
+{% endif %}
+
+<h2>Live and waitlisted</h2>
+{% if active %}
+<div class="table-wrap"><table>
+  <tr><th>Status</th><th>Company</th><th>Raised</th><th>Due</th><th>Shown</th><th>Reports</th><th></th></tr>
+  {% for b in active %}
+  <tr>
+    <td><span class="pill">{{ b.status }}</span></td>
+    <td>{{ b.biller_name }} · {{ b.requester_first_name }}, {{ b.city }}</td>
+    <td>{{ b.amount_raised_cents|dollars }} of {{ b.amount_due_cents|dollars }}</td>
+    <td>{{ b.due_date }}</td>
+    <td>{{ b.times_shown }}</td>
+    <td>{{ b.open_reports }}</td>
+    <td>
+      <form method="post" action="/admin/bills/{{ b.id }}/remove" class="row">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div><input type="text" name="note" placeholder="Reason"></div>
+        <div><button class="danger" type="submit">Remove and refund</button></div>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% else %}
+<p class="muted">No live bills.</p>
+{% endif %}
+
+<h2>Open reports</h2>
+{% if reports %}
+<div class="table-wrap"><table>
+  <tr><th>Reason</th><th>Bill</th><th>Reported</th><th></th></tr>
+  {% for r in reports %}
+  <tr>
+    <td>{{ r.reason.replace('_', ' ') }}</td>
+    <td>{{ r.biller_name }} · {{ r.requester_first_name }} <span class="pill">{{ r.status }}</span></td>
+    <td>{{ r.created_at.strftime('%b %d %H:%M') }}</td>
+    <td>
+      <form method="post" action="/admin/reports/{{ r.id }}/resolve">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="secondary" type="submit">Dismiss</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% else %}
+<p class="muted">No open reports.</p>
+{% endif %}
+
+<h2>Refunds needing attention</h2>
+{% if refunds %}
+<div class="table-wrap"><table>
+  <tr><th>Amount</th><th>Company</th><th>Payment</th><th></th></tr>
+  {% for c in refunds %}
+  <tr>
+    <td>{{ c.amount_cents|dollars }}</td>
+    <td>{{ c.biller_name }}</td>
+    <td>{{ c.payment_ref }}</td>
+    <td>
+      <form method="post" action="/admin/contributions/{{ c.id }}/refund">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit">Retry refund</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% else %}
+<p class="muted">No stuck refunds.</p>
+{% endif %}
+{% endblock %}
