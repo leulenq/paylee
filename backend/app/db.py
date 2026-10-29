@@ -40,3 +40,4 @@ def init_schema(conn: psycopg.Connection) -> None:
     conn.execute(SCHEMA_PATH.read_text())
     conn.execute(SCHEMA_PATH.with_name("trust_schema.sql").read_text())
     conn.execute(SCHEMA_PATH.with_name("requester_schema.sql").read_text())
+    conn.execute(SCHEMA_PATH.with_name("eligibility_schema.sql").read_text())

@@ -24,6 +24,12 @@ def valid_form(**overrides):
         "due_date": (date.today() + timedelta(days=5)).isoformat(),
         "story": "My hours got cut this fall and I fell behind. I have a shutoff notice for next week.",
         "consent": "true",
+        "account_holder_name": "Maria Garcia",
+        "service_street": "120 Main Street",
+        "service_zip": "40508",
+        "hardship_cause": "reduced_income",
+        "signature": "Maria Garcia",
+        "attest": "true",
     }
     form.update(overrides)
     return form

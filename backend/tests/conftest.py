@@ -73,6 +73,7 @@ def make_bill():
         biller_name: str = "Kentucky Utilities",
         category: str = "utilities",
         state: str = "KY",
+        eligible: bool = True,
     ) -> str:
         with db.transaction() as conn:
             row = conn.execute(
@@ -89,7 +90,7 @@ def make_bill():
                 (status, category, biller_name, state, state, amount_due_cents, amount_due_cents, amount_raised_cents,
                  due_date or date.today() + timedelta(days=7), status),
             ).fetchone()
-            verify_fixture_bill(conn, row["id"], amount_due_cents)
+            verify_fixture_bill(conn, row["id"], amount_due_cents, eligible)
         return str(row["id"])
 
     return _make_bill

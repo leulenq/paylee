@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 
 import psycopg
 
-from . import jobs, ledger, notify, staff, trust
+from . import eligibility, jobs, ledger, notify, staff, trust
 from .config import Settings, get_settings
 from .money import format_dollars
 
@@ -47,6 +47,11 @@ ELIGIBLE_SQL = """exists (
       and v.expires_at > now() and br.status = 'approved'
       and br.active_destination_id = v.destination_id
       and exists (select 1 from review_decisions r where r.verification_id = v.id and r.decision = 'approved')
+) and exists (
+    select 1 from bill_eligibility e where e.bill_id = b.id and e.audit_status not in ('failed', 'abandoned')
+      and not exists (select 1 from eligibility_bars x where x.scope = 'all' and x.barred_until > now()
+          and x.fingerprint in ('household:' || e.household_fingerprint, 'account:' || e.account_fingerprint,
+                                'user:' || e.requester_user_id::text, 'person:' || e.person_fingerprint))
 )"""
 
 
@@ -115,6 +120,7 @@ def approve(
             raise trust.TrustError("Additional charges need a separately reviewed bill")
     elif bill["status"] != "submitted" and bill["amount_due_cents"] != amount_due_cents:
         raise trust.TrustError("Resolve changed balances and refund excess funding before changing a published amount")
+    eligibility.publish(conn, actor, bill_id, amount_due_cents)
     biller_name = verification["legal_name"]
     conn.execute("""insert into review_decisions (bill_id, verification_id, actor_id, decision)
                     values (%s, %s, %s, 'approved')""", (bill_id, verification["id"], actor["id"]))

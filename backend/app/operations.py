@@ -1,7 +1,7 @@
 """Staff-only operations API and console. Every mutation is authenticated and CSRF-protected."""
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -16,7 +16,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
-from . import bills, db, documents, staff, trust, vault
+from . import bills, db, documents, eligibility, staff, trust, vault
 from .config import get_settings
 from .intake import detect_upload_type as _detect_upload_type
 from .money import MAX_BILL_CENTS
@@ -57,6 +57,10 @@ def state(request: Request):
             "jobs": conn.execute("select id, kind, object_id, status, attempts, last_error from work_jobs where status <> 'done' order by created_at limit 100").fetchall(),
             "disputes": conn.execute("select external_id, contribution_id, status, amount_cents, updated_at from funding_disputes order by updated_at desc limit 100").fetchall(),
             "provider_events": conn.execute("select id, provider, external_id, event->>'kind' as kind, processed_at, created_at from provider_events order by created_at desc limit 100").fetchall(),
+            "eligibility": conn.execute("""select bill_id, level, amount_cents, trailing_cents, hardship_method, audit_status,
+                created_at from bill_eligibility order by created_at desc limit 100""").fetchall(),
+            "hardship_checks": conn.execute("""select id, bill_id, method, observed_at, expires_at from hardship_checks
+                order by created_at desc limit 100""").fetchall(),
             "ledger": conn.execute("select bill_id, account, sum(signed_cents)::bigint as balance_cents from ledger_lines group by bill_id, account order by bill_id").fetchall(),
             "audit": conn.execute("select id, actor_id, action, object_id, created_at from audit_events order by id desc limit 50").fetchall(),
         }
@@ -135,7 +139,8 @@ def extraction(document_id: UUID, request: Request):
 
 
 class EvidenceInput(BaseModel):
-    kind: Literal["biller", "debt", "balance", "funding", "submission", "settlement", "posting", "return", "non_execution"]
+    kind: Literal["biller", "debt", "balance", "funding", "submission", "settlement", "posting", "return", "non_execution",
+                  "account_holder", "identity", "hardship"]
     document_id: UUID
     reference: str = Field(min_length=3, max_length=200)
     source: str = Field(min_length=3, max_length=500)
@@ -198,7 +203,6 @@ class VerificationInput(BaseModel):
     period_label: str = Field(min_length=3, max_length=100)
     verified_balance_cents: int = Field(gt=0, le=MAX_BILL_CENTS)
     evidence_id: UUID
-    identity_and_account_holder_confirmed: Literal[True]
     independently_confirmed_debt: Literal[True]
     third_party_payment_and_refunds_confirmed: Literal[True]
     no_pending_insurance_or_refundable_deposits: Literal[True]
@@ -211,6 +215,70 @@ def verify_bill(bill_id: UUID, body: VerificationInput, request: Request):
     with db.transaction() as conn:
         row = trust.verify_bill(conn, actor(request), bill_id, **fields)
     return {"id": row["id"], "expires_at": row["expires_at"], "account_last4": row["account_last4"]}
+
+
+class AccountHolderInput(BaseModel):
+    evidence_id: UUID
+    holder_name: str = Field(min_length=3, max_length=120)
+    service_street: str = Field(min_length=3, max_length=120)
+    service_zip: str = Field(pattern=r"^[0-9]{5}(-?[0-9]{4})?$")
+
+
+@router.post("/bills/{bill_id}/account-holder", status_code=201)
+def account_holder(bill_id: UUID, body: AccountHolderInput, request: Request):
+    with db.transaction() as conn:
+        row = eligibility.record_account_holder(conn, actor(request), bill_id, **body.model_dump())
+    return {"id": row["id"]}
+
+
+class IdentityInput(BaseModel):
+    evidence_id: UUID
+    legal_name: str = Field(min_length=3, max_length=120)
+    date_of_birth: date
+
+
+@router.post("/bills/{bill_id}/identity", status_code=201)
+def identity(bill_id: UUID, body: IdentityInput, request: Request):
+    with db.transaction() as conn:
+        row = eligibility.record_identity(conn, actor(request), bill_id, **body.model_dump())
+    return {"id": row["id"], "expires_at": row["expires_at"]}
+
+
+class HardshipInput(BaseModel):
+    method: Literal["biller_program", "benefits", "income", "shock"]
+    evidence_id: UUID
+    legal_name: str | None = Field(default=None, max_length=120)
+
+
+@router.post("/bills/{bill_id}/hardship", status_code=201)
+def hardship(bill_id: UUID, body: HardshipInput, request: Request):
+    values = body.model_dump()
+    values["legal_name"] = (values["legal_name"] or "").strip() or None
+    with db.transaction() as conn:
+        row = eligibility.record_hardship(conn, actor(request), bill_id, **values)
+    return {"id": row["id"], "expires_at": row["expires_at"]}
+
+
+@router.get("/bills/{bill_id}/eligibility")
+def eligibility_status(bill_id: UUID, request: Request):
+    current = actor(request)
+    staff.require_role(current, "reviewer")
+    with db.transaction() as conn:
+        if not conn.execute("select 1 from bills where id = %s", (bill_id,)).fetchone():
+            raise HTTPException(404, "Bill not found")
+        return eligibility.ops_view(conn, bill_id)
+
+
+class AuditInput(BaseModel):
+    outcome: Literal["passed", "failed"]
+    hardship_check_id: UUID | None = None
+
+
+@router.post("/bills/{bill_id}/audit")
+def resolve_audit(bill_id: UUID, body: AuditInput, request: Request):
+    with db.transaction() as conn:
+        eligibility.resolve_audit(conn, actor(request), bill_id, **body.model_dump())
+    return {"audit_status": body.outcome}
 
 
 class ReviewInput(BaseModel):

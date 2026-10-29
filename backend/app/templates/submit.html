@@ -81,6 +81,43 @@
   <input id="bill_file" name="bill_file" type="file" accept="image/jpeg,image/png,image/heic,application/pdf" required>
   {% if errors.bill_file %}<div class="error">{{ errors.bill_file }}</div>{% endif %}
 
+  <h2>Whose account is it?</h2>
+  <p class="hint">We confirm these details with the company. Givers never see them.</p>
+  <label for="account_holder_name">Name on the account</label>
+  <input id="account_holder_name" name="account_holder_name" type="text" autocomplete="name" value="{{ values.account_holder_name or '' }}" required>
+  {% if errors.account_holder_name %}<div class="error">{{ errors.account_holder_name }}</div>{% endif %}
+  <div class="row">
+    <div>
+      <label for="service_street">Service address</label>
+      <input id="service_street" name="service_street" type="text" autocomplete="street-address" value="{{ values.service_street or '' }}" required>
+      {% if errors.service_street %}<div class="error">{{ errors.service_street }}</div>{% endif %}
+    </div>
+    <div>
+      <label for="service_zip">ZIP code</label>
+      <input id="service_zip" name="service_zip" type="text" inputmode="numeric" autocomplete="postal-code" value="{{ values.service_zip or '' }}" required>
+      {% if errors.service_zip %}<div class="error">{{ errors.service_zip }}</div>{% endif %}
+    </div>
+  </div>
+
+  <label for="hardship_cause">What put you behind?</label>
+  <select id="hardship_cause" name="hardship_cause" required>
+    <option value="">Choose one</option>
+    {% for code, label in causes.items() %}
+    <option value="{{ code }}" {% if values.hardship_cause == code %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  {% if errors.hardship_cause %}<div class="error">{{ errors.hardship_cause }}</div>{% endif %}
+
+  <label class="check">
+    <input type="checkbox" name="attest" value="true" {% if values.attest %}checked{% endif %}>
+    <span>I can't pay this bill on my own right now because of what I chose above. Paylee checks some requests at random and may ask me for one document before paying. Requests that don't hold up are removed, and the household can't use Paylee for a year.</span>
+  </label>
+  {% if errors.attest %}<div class="error">{{ errors.attest }}</div>{% endif %}
+
+  <label for="signature">Type your full name to sign</label>
+  <input id="signature" name="signature" type="text" autocomplete="name" value="{{ values.signature or '' }}" required>
+  {% if errors.signature %}<div class="error">{{ errors.signature }}</div>{% endif %}
+
   <label class="check">
     <input type="checkbox" name="consent" value="true">
     <span>This bill is in my name, and I understand a reviewer will check it before it goes live.</span>

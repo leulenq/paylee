@@ -13,3 +13,7 @@ grant select on ledger_lines, staff to :"runtime_role";
 grant update (last_totp_counter, session_version) on staff to :"runtime_role";
 grant update (bill_id) on debt_claims to :"runtime_role";
 grant usage, select on sequence audit_events_id_seq to :"runtime_role";
+grant select, insert on eligibility_claims, account_holder_bindings, identity_checks, hardship_checks,
+    eligibility_bars, bill_eligibility to :"runtime_role";
+-- Only an audit outcome changes after publication; the trigger also allows it just once.
+grant update (audit_status, audit_hardship_check_id, audit_resolved_by, audit_resolved_at) on bill_eligibility to :"runtime_role";

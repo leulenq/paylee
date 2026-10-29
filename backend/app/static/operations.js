@@ -15,7 +15,9 @@
     const state = await response.json();
     const sources = {...state, clean_documents: state.documents.filter(d => d.scan_status === 'clean'),
       approved_billers: state.billers.filter(b => b.status === 'approved')};
-    for (const kind of ['biller', 'debt', 'balance', 'funding', 'submission', 'settlement', 'posting', 'return', 'non_execution']) {
+    sources.audited_bills = state.eligibility.filter(e => e.audit_status === 'selected').map(e => ({...e, id: e.bill_id}));
+    for (const kind of ['biller', 'debt', 'balance', 'funding', 'submission', 'settlement', 'posting', 'return', 'non_execution',
+      'account_holder', 'identity', 'hardship']) {
       sources[kind + '_evidence'] = state.evidence.filter(e => e.kind === kind);
     }
     for (const select of document.querySelectorAll('select[data-source]')) {
@@ -85,7 +87,7 @@
             if (field.type === 'checkbox') values[field.name] = field.checked;
             else if (field.type === 'number') { if (field.value !== '') values[field.name] = Number(field.value); }
             else if (field.type === 'datetime-local') values[field.name] = new Date(field.value).toISOString();
-            else values[field.name] = field.value;
+            else if (field.value !== '' || field.required) values[field.name] = field.value;
           }
           url = url.replace(/\{([^}]+)\}/g, (_, name) => { const value = values[name]; delete values[name]; return encodeURIComponent(value); });
           headers['Content-Type'] = 'application/json'; body = JSON.stringify(values);

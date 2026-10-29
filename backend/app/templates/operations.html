@@ -24,12 +24,12 @@
 <form data-upload class="card"><label>Supporting document<input name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.heic" required></label><button>Upload for scanning</button></form>
 <details class="card"><summary>Record a verified observation</summary>
 <form data-endpoint="/evidence">
-<label>Evidence type<select name="kind" required><option>biller</option><option>debt</option><option>balance</option><option>funding</option><option>submission</option><option>settlement</option><option>posting</option><option>return</option><option>non_execution</option></select></label>
+<label>Evidence type<select name="kind" required><option>biller</option><option>debt</option><option>balance</option><option>funding</option><option>submission</option><option>settlement</option><option>posting</option><option>return</option><option>non_execution</option><option>account_holder</option><option>identity</option><option>hardship</option></select></label>
 {{ picker('document_id', 'Clean supporting document', 'clean_documents') }}
-{{ input('subject', 'Subject: official domain for a biller; otherwise the bill, contribution, or payment ID') }}
+{{ input('subject', 'Subject: official domain for a biller; requester account ID for identity or person-level hardship (bill ID for web requests); otherwise the bill, contribution, or payment ID') }}
 {{ input('reference', 'Confirmation or evidence reference') }}
 {{ input('source', 'Independently established source (contact, statement, or provider)') }}
-<label>Observed amount in cents (omit for biller evidence)<input name="amount_cents" type="number" min="1" step="1"></label>
+<label>Observed amount in cents (omit for biller, account holder, identity, and hardship evidence)<input name="amount_cents" type="number" min="1" step="1"></label>
 <label>When the source confirmed it<input name="observed_at" type="datetime-local" step="1" required></label>
 <button type="button" data-observed-now>Use current time</button>
 <button>Record evidence</button>
@@ -65,15 +65,37 @@
 {{ input('period_label', 'Canonical invoice or billing period (reuse the same format for duplicates)') }}
 {{ input('verified_balance_cents', 'Eligible outstanding balance in cents', 'number') }}
 {{ picker('evidence_id', 'Independent debt evidence', 'debt_evidence') }}
-{{ check('identity_and_account_holder_confirmed', 'Requester identity and relationship to the account holder are verified.') }}
 {{ check('independently_confirmed_debt', 'The biller independently confirmed this account and unpaid balance.') }}
 {{ check('third_party_payment_and_refunds_confirmed', 'Third-party payment, allocation, and controlled refund handling are confirmed.') }}
 {{ check('no_pending_insurance_or_refundable_deposits', 'The eligible debt excludes unresolved insurance, refundable deposits, and related-party payments.') }}
 <button>Record verification</button></form></details>
+<details class="card"><summary>Bind the biller's account holder to the requester's claim</summary><form data-endpoint="/bills/{bill_id}/account-holder">
+{{ picker('bill_id', 'Verified bill', 'bills') }}
+{{ input('holder_name', 'Account holder name exactly as the biller states it') }}
+{{ input('service_street', 'Service street address from the biller') }}
+{{ input('service_zip', 'Service ZIP code from the biller') }}
+{{ picker('evidence_id', 'Biller account-holder confirmation (subject: bill ID)', 'account_holder_evidence') }}
+<p>Record what the biller says, not what the requester wrote. A mismatch is refused; ask the requester to correct their claim or reject the bill.</p><button>Bind account holder</button></form></details>
+<details class="card"><summary>Record an identity check</summary><form data-endpoint="/bills/{bill_id}/identity">
+{{ picker('bill_id', 'Bill', 'bills') }}{{ input('legal_name', 'Verified legal name') }}{{ input('date_of_birth', 'Verified date of birth', 'date') }}
+{{ picker('evidence_id', 'Identity verification result', 'identity_evidence') }}
+<p>Required once a household passes the attested limit in a year. The name must match the account holder.</p><button>Record identity</button></form></details>
+<details class="card"><summary>Record hardship evidence</summary><form data-endpoint="/bills/{bill_id}/hardship">
+{{ picker('bill_id', 'Bill', 'bills') }}
+<label>Method<select name="method" required><option value="biller_program">Biller hardship program (low-income rate, arrearage plan)</option><option value="benefits">Benefits enrollment (SNAP, Medicaid, SSI, LIHEAP, Lifeline)</option><option value="income">Third-party income data</option><option value="shock">Documented shock (UI determination, layoff, discharge)</option></select></label>
+<label>Name on the evidence (person-level methods only)<input name="legal_name" type="text"></label>
+{{ picker('evidence_id', 'Hardship evidence', 'hardship_evidence') }}
+<p>A late or shutoff notice is not hardship evidence; it proves arrears, not need.</p><button>Record hardship</button></form></details>
+<details class="card"><summary>Resolve a hardship audit</summary><form data-endpoint="/bills/{bill_id}/audit">
+{{ picker('bill_id', 'Bill under audit', 'audited_bills') }}
+<label>Outcome<select name="outcome" required><option value="passed">Passed: current hardship evidence matches the holder</option><option value="failed">Failed: remove the bill, refund givers, and bar its household, account, requester, and person</option></select></label>
+<label>Hardship evidence record (required to pass)<select name="hardship_check_id" data-source="hardship_checks"></select></label>
+<p>You must be a different reviewer from the one who published the bill.</p><button>Resolve audit</button></form></details>
 <details class="card"><summary>Approve the verified bill for givers</summary><form data-endpoint="/bills/{bill_id}/approve">
 {{ picker('bill_id', 'Verified bill', 'bills') }}{{ input('amount_due_cents', 'Approved balance in cents', 'number') }}
 <label>Public story<textarea name="story" minlength="10" maxlength="800" required></textarea></label>
 {{ check('private_information_removed', 'The story has no private contact, account, address, or medical details.') }}
+<p>Publication freezes eligibility. It fails unless the account holder is bound and the household's identity and hardship evidence meet its trailing-year amount.</p>
 <button>Approve for publication</button></form></details>
 {% endif %}
 

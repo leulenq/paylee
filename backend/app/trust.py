@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 from psycopg.types.json import Jsonb
 
-from . import jobs, ledger, notify, staff, vault
+from . import eligibility, jobs, ledger, notify, staff, vault
 from .config import get_settings
 
 
@@ -43,6 +43,10 @@ def evidence(conn, evidence_id, kind, subject, *, amount=None, max_age=None):
     return row
 
 
+# Observations about creditors and people, not money. They never carry an amount.
+NON_FINANCIAL_EVIDENCE = ("biller", "account_holder", "identity", "hardship")
+
+
 def record_evidence(conn, actor, *, kind, document_id, reference, source, subject, observed_at, amount_cents=None):
     roles = {"funding": ("treasury",), "settlement": ("treasury",), "posting": ("treasury",),
              "return": ("treasury",), "non_execution": ("treasury",), "submission": ("payments",)}.get(kind, ("reviewer",))
@@ -52,7 +56,7 @@ def record_evidence(conn, actor, *, kind, document_id, reference, source, subjec
         raise TrustError("Scan the supporting document before recording evidence")
     if observed_at.tzinfo is None or observed_at > datetime.now(timezone.utc) + timedelta(seconds=5):
         raise TrustError("Evidence requires a valid timezone-aware observation time")
-    if kind != "biller" and amount_cents is None:
+    if kind not in NON_FINANCIAL_EVIDENCE and amount_cents is None:
         raise TrustError("Financial evidence must record the observed amount")
     row = conn.execute(
         """insert into evidence (kind, document_id, reference, source, subject, observed_at, amount_cents, recorded_by)
@@ -204,7 +208,7 @@ def verify_bill(conn, actor, bill_id, *, biller_id, account_reference, period_la
     return row
 
 
-def eligible_verification(conn, bill_id, *, amount=None, lock=False, require_review=True):
+def eligible_verification(conn, bill_id, *, amount=None, lock=False, require_review=True, payout=False):
     row = conn.execute(
         """select v.*, br.status as biller_status, br.active_destination_id,
                   b.verification_paused, b.balance_reported_at,
@@ -233,6 +237,8 @@ def eligible_verification(conn, bill_id, *, amount=None, lock=False, require_rev
         raise TrustError("The current verification needs a human publication review")
     if amount is not None and amount > row["verified_balance_cents"]:
         raise TrustError("Amount exceeds the independently verified balance")
+    if require_review:
+        eligibility.check(conn, bill_id, payout=payout)
     return row
 
 
@@ -288,7 +294,7 @@ def prepare_payment(conn, actor, bill_id):
         raise TrustError("Only funded bills or eligible expired partial bills can be prepared")
     if conn.execute("select id from payment_orders where bill_id = %s and status not in ('canceled', 'returned')", (bill_id,)).fetchone():
         raise TrustError("A payment instruction already exists for this bill")
-    v = eligible_verification(conn, bill_id, amount=bill["amount_raised_cents"], lock=True)
+    v = eligible_verification(conn, bill_id, amount=bill["amount_raised_cents"], lock=True, payout=True)
     funded = bill["amount_raised_cents"]
     _no_disputes(conn, bill_id)
     _ready_funding(conn, bill_id, funded)
@@ -315,7 +321,7 @@ def release_payment(conn, actor, order_id, balance_evidence_id):
     order = _order(conn, order_id)
     if order["status"] != "prepared":
         raise TrustError("Payment is not awaiting release")
-    v = eligible_verification(conn, order["bill_id"], amount=order["amount_cents"], lock=True)
+    v = eligible_verification(conn, order["bill_id"], amount=order["amount_cents"], lock=True, payout=True)
     if order["verification_id"] != v["id"] or order["destination_id"] != v["destination_id"]:
         raise TrustError("Verification or destination changed; cancel and prepare a new instruction")
     if actor["id"] in (order["prepared_by"], v["verified_by"]):
@@ -353,7 +359,7 @@ def claim_execution(conn, actor, order_id):
         raise TrustError("Execution was already claimed or this payment has not been released")
     proof = evidence(conn, order["balance_evidence_id"], "balance", order["bill_id"],
                      max_age=timedelta(minutes=get_settings().release_balance_minutes))
-    v = eligible_verification(conn, order["bill_id"], amount=order["amount_cents"], lock=True)
+    v = eligible_verification(conn, order["bill_id"], amount=order["amount_cents"], lock=True, payout=True)
     if v["id"] != order["verification_id"] or v["destination_id"] != order["destination_id"]:
         raise TrustError("Instruction is stale; no payment may be executed")
     _no_disputes(conn, order["bill_id"])

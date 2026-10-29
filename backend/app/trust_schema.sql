@@ -222,8 +222,10 @@ alter table payment_orders add constraint payment_orders_status_check check (sta
     'prepared', 'released', 'executing', 'submitted', 'settled', 'applied', 'returned', 'canceled', 'exception'
 ));
 alter table evidence drop constraint if exists evidence_kind_check;
+-- The one list of evidence kinds; this file re-applies it on every migration, so add new kinds here.
 alter table evidence add constraint evidence_kind_check check (kind in (
-    'biller', 'debt', 'balance', 'funding', 'submission', 'settlement', 'posting', 'return', 'non_execution'
+    'biller', 'debt', 'balance', 'funding', 'submission', 'settlement', 'posting', 'return', 'non_execution',
+    'account_holder', 'identity', 'hardship'
 ));
 alter table bill_verifications drop constraint if exists bill_verifications_invoice_fingerprint_key;
 create unique index if not exists bill_verifications_bill_binding_idx on bill_verifications (bill_id, id);

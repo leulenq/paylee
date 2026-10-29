@@ -6,10 +6,10 @@ Synthetic evidence is explicitly marked development-unverified; no real biller i
 
 import argparse
 import secrets
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import NAMESPACE_URL, uuid5
 
-from . import accounts, bills, db, documents, staff, trust
+from . import accounts, bills, db, documents, eligibility, staff, trust
 from .config import get_settings
 from .seed import PLACEHOLDER_PNG, SAMPLES
 
@@ -77,6 +77,16 @@ def _bill(conn, ops, owner_id, slug, *, category, company, name, city, amount, d
     trust.verify_bill(conn, ops["reviewer"], bill_id, biller_id=creditor["id"],
         account_reference=f"demo-account-{bill_id}", period_label=f"development-{slug}",
         verified_balance_cents=amount, evidence_id=_proof(conn, ops, "debt", bill_id, amount))
+    # Synthetic holder, address, identity, and benefits evidence so every demo amount can publish unaudited.
+    holder, street = f"{name} Demo", f"{len(slug)} {slug.title()} Street"
+    eligibility.submit_claim(conn, bill_id, None, {"account_holder_name": holder, "service_street": street,
+        "service_zip": "40508", "hardship_cause": "reduced_income", "signature": holder, "attest": True})
+    eligibility.record_account_holder(conn, ops["reviewer"], bill_id, evidence_id=_proof(conn, ops, "account_holder", bill_id),
+        holder_name=holder, service_street=street, service_zip="40508")
+    eligibility.record_identity(conn, ops["reviewer"], bill_id, evidence_id=_proof(conn, ops, "identity", bill_id),
+        legal_name=holder, date_of_birth=date(1980, 1, 1))
+    eligibility.record_hardship(conn, ops["reviewer"], bill_id, method="benefits",
+        evidence_id=_proof(conn, ops, "hardship", bill_id), legal_name=holder)
     bills.approve(conn, bill_id, amount_due_cents=amount, biller_name=legal_name,
         story=f"Demo scenario: {story}", max_live=get_settings().max_live_bills, actor=ops["reviewer"])
     return bill_id, True

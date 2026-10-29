@@ -20,7 +20,18 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import bills, db, documents, intake, notify, ratelimit, refunds, staff, trust
+from . import (
+    bills,
+    db,
+    documents,
+    eligibility,
+    intake,
+    notify,
+    ratelimit,
+    refunds,
+    staff,
+    trust,
+)
 from .config import get_settings
 from .money import format_dollars, parse_dollars
 from .security import admin_csrf_token, require_admin
@@ -44,9 +55,19 @@ def home() -> RedirectResponse:
 
 @router.get("/submit", response_class=HTMLResponse)
 def submit_form(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request, "submit.html", {"categories": bills.CATEGORIES, "states": bills.US_STATES, "values": {}, "errors": {}}
-    )
+    return templates.TemplateResponse(request, "submit.html", _form_context({}, {}))
+
+
+def _form_context(values, errors):
+    return {"categories": bills.CATEGORIES, "states": bills.US_STATES, "causes": HARDSHIP_CAUSES,
+            "values": values, "errors": errors}
+
+
+HARDSHIP_CAUSES = {
+    "job_loss": "I lost my job", "reduced_income": "My hours or pay were cut", "medical": "A medical problem or bills",
+    "disability": "A disability", "benefits_gap": "My benefits stopped or were delayed",
+    "household_change": "A change at home (separation, death, new dependent)", "other": "Something else",
+}
 
 
 @router.post("/submit", response_class=HTMLResponse)
@@ -62,6 +83,12 @@ def submit_bill(
     due_date: Annotated[str, Form()] = "",
     story: Annotated[str, Form()] = "",
     consent: Annotated[bool, Form()] = False,
+    account_holder_name: Annotated[str, Form()] = "",
+    service_street: Annotated[str, Form()] = "",
+    service_zip: Annotated[str, Form()] = "",
+    hardship_cause: Annotated[str, Form()] = "",
+    signature: Annotated[str, Form()] = "",
+    attest: Annotated[bool, Form()] = False,
     bill_file: Annotated[UploadFile | None, File()] = None,
 ) -> HTMLResponse:
     client = request.client.host if request.client else "unknown"
@@ -77,6 +104,9 @@ def submit_bill(
         "category": category, "biller_name": biller_name.strip(), "amount": amount.strip(),
         "due_date": due_date, "story": story.strip(),
     }
+    claim = {"account_holder_name": account_holder_name.strip(), "service_street": service_street.strip(),
+             "service_zip": service_zip.strip(), "hardship_cause": hardship_cause, "signature": signature.strip(),
+             "attest": attest}
     amount_cents = 0
     amount_error = None
     try:
@@ -87,16 +117,14 @@ def submit_bill(
     if amount_error:
         errors.pop("amount_cents", None)
         errors["amount"] = amount_error
+    errors.update(eligibility.validate_claim(claim))
     content, detected, file_error = intake.read_upload(bill_file)
     if file_error:
         errors["bill_file"] = file_error
 
     if errors:
         return templates.TemplateResponse(
-            request,
-            "submit.html",
-            {"categories": bills.CATEGORIES, "states": bills.US_STATES, "values": values, "errors": errors},
-            status_code=status.HTTP_400_BAD_REQUEST,
+            request, "submit.html", _form_context({**values, **claim}, errors), status_code=status.HTTP_400_BAD_REQUEST,
         )
 
     content_type, extension = detected
@@ -119,6 +147,7 @@ def submit_bill(
         )
         conn.execute("update bills set document_id = %s, consented_at = now() where id = %s",
                      (document["id"], submission["id"]))
+        eligibility.submit_claim(conn, submission["id"], None, claim)
         notify.bill_event(conn, submission["id"], "submitted")
     return templates.TemplateResponse(request, "submit_done.html", {"first_name": values["first_name"]})
 

@@ -59,21 +59,22 @@ In a separate terminal, run `uv run python -m app.worker`. Configure a local `cl
 
 ## Operator sequence
 
-1. **Intake:** the requester uploads a bill and authorizes verification/payment. The file is encrypted, hashed, quarantined, and queued. No uploaded remittance instruction becomes a payment destination.
+1. **Intake:** the requester uploads a bill, states the account holder, service address, and hardship cause, signs an attestation, and authorizes verification/payment. The file is encrypted, hashed, quarantined, and queued. No uploaded remittance instruction becomes a payment destination.
 2. **Scan:** the worker performs ClamAV scanning. Failures stay quarantined and retry. Infected documents cannot be downloaded or used as evidence.
 3. **Extract:** optional Textract extracts text/forms/tables and query results, preserving confidence, relationships, and source geometry in encrypted storage. HEIC and unsupported PDFs go to manual extraction. OCR never publishes a bill.
 4. **Enroll the creditor:** a reviewer uploads evidence of legal identity, independently established official domain/portal, and the creditor's assistance/refund agreement. Record `biller` evidence with the official domain as its subject. Create the biller and its first immutable destination version.
 5. **Approve the creditor:** a different payments operator independently checks and approves enrollment. Only institutional creditors with a documented return-to-origin assistance process are eligible. Individual landlords, related-party creditors, refundable deposits, and unverified merchants are outside the pilot.
-6. **Verify debt:** a reviewer establishes requester identity/account relationship and independently contacts the biller or uses an authorized source. Record `debt` evidence scoped to the bill ID and eligible balance. Enter the verified account reference and canonical invoice/billing period. This creates an immutable verification expiring 48 hours after the source observation.
-7. **Approve publication:** the reviewer removes private details from the public story and approves exactly the verified balance. Unverified, stale, unreviewed, suspended, or destination-changed bills cannot accept new contributions. Reverification requires a new review decision.
-8. **Collect:** giver checkout reserves capacity under a bill lock. Completed collections post to `collection_receivable`, not available cash. Late, excess, or mismatched payments go to original-source refund handling.
-9. **Reconcile funding:** treasury checks the provider settlement and segregated program account. Record `funding` evidence scoped to each contribution ID for its actual amount. Confirm that the full promised amount is available after fees/reserves. Reconciliation moves receivable into `program_cash`.
-10. **Prepare:** a reviewer or payments operator prepares an immutable instruction. The full collected balance must be reconciled. Preparation freezes bill, verification, destination version, amount, currency, and a stable operation ID. Only one unresolved instruction can exist per bill.
-11. **Release:** another payments operator approves using `balance` evidence scoped to the bill ID and observed within 15 minutes. They must differ from both the preparer and debt verifier. Reduced balances cannot be overpaid.
-12. **Claim execution:** a payments operator claims the released instruction once. This exposes the approved portal and decrypted customer account. Claiming rechecks balance freshness, destination, verification, and disputes. The instruction becomes `executing` and blocks removal, refunds, or duplicate execution claims.
-13. **Pay:** that operator pays the exact approved amount/account/period through the official portal with an approved program instrument. Do not give instruments or credentials to the requester. Upload the biller receipt and record `submission` evidence scoped to the payment ID and exact amount. The external biller reference must be unique.
-14. **Settle:** independent treasury uploads rail/bank settlement evidence. An executor cannot reconcile their own payment.
-15. **Confirm posting:** independent treasury obtains biller evidence that the exact amount was applied to the intended account. Only this transition sets the bill to `paid`, sends payment confirmation, and credits completion metrics for fully funded bills.
+6. **Verify debt:** a reviewer independently contacts the biller or uses an authorized source. Record `debt` evidence scoped to the bill ID and eligible balance. Enter the verified account reference and canonical invoice/billing period. This creates an immutable verification expiring 48 hours after the source observation.
+7. **Bind and grade eligibility:** see *Person, household, and hardship gates* below. Record the biller's statement of the account holder and service address, then any identity or hardship evidence the household's trailing-year amount requires.
+8. **Approve publication:** the reviewer removes private details from the public story and approves exactly the verified balance. Unverified, stale, unreviewed, suspended, or destination-changed bills cannot accept new contributions. Reverification requires a new review decision.
+9. **Collect:** giver checkout reserves capacity under a bill lock. Completed collections post to `collection_receivable`, not available cash. Late, excess, or mismatched payments go to original-source refund handling.
+10. **Reconcile funding:** treasury checks the provider settlement and segregated program account. Record `funding` evidence scoped to each contribution ID for its actual amount. Confirm that the full promised amount is available after fees/reserves. Reconciliation moves receivable into `program_cash`.
+11. **Prepare:** a reviewer or payments operator prepares an immutable instruction. The full collected balance must be reconciled. Preparation freezes bill, verification, destination version, amount, currency, and a stable operation ID. Only one unresolved instruction can exist per bill.
+12. **Release:** another payments operator approves using `balance` evidence scoped to the bill ID and observed within 15 minutes. They must differ from both the preparer and debt verifier. Reduced balances cannot be overpaid.
+13. **Claim execution:** a payments operator claims the released instruction once. This exposes the approved portal and decrypted customer account. Claiming rechecks balance freshness, destination, verification, and disputes. The instruction becomes `executing` and blocks removal, refunds, or duplicate execution claims.
+14. **Pay:** that operator pays the exact approved amount/account/period through the official portal with an approved program instrument. Do not give instruments or credentials to the requester. Upload the biller receipt and record `submission` evidence scoped to the payment ID and exact amount. The external biller reference must be unique.
+15. **Settle:** independent treasury uploads rail/bank settlement evidence. An executor cannot reconcile their own payment.
+16. **Confirm posting:** independent treasury obtains biller evidence that the exact amount was applied to the intended account. Only this transition sets the bill to `paid`, sends payment confirmation, and credits completion metrics for fully funded bills.
 
 The JSON operations endpoints are under `/admin/ops`; their models appear in `/docs`. Browser mutations require the per-staff CSRF token supplied by the console. Donor endpoints retain their existing authentication and contribution contract.
 
@@ -105,6 +106,48 @@ Files are encrypted before local/S3 storage, with SHA-256 provenance. Original b
 Account references and OCR output use application encryption. Account/debt fingerprints use keyed HMACs. Keep encryption and fingerprint keys separate and stable; retain their recoverable backups. Rotating a fingerprint key without migration defeats duplicate detection. Key rotation and retention deletion require an explicit reviewed migration.
 
 Givers never receive uploads, evidence documents, source contacts, internal notes, full account references, or destination details. `GET /api/contributions/{id}/receipt` is owner-only and exposes contribution amount, total bill payment, masked account ending, payment stage, and timestamps. It is a status receipt, not a tax-deductible charity acknowledgment. Independent evidence remains available to authorized operations/auditors.
+
+## Person, household, and hardship gates
+
+Creditor and debt verification prove the money can only reach a real debt. These gates decide whether the
+debt deserves gifts. Passing one never implies another, so `eligibility.py` also binds them together.
+
+**Bindings.** The requester states the account holder, service address, and hardship cause, and signs an
+attestation (`eligibility_claims`, encrypted, append-only). A reviewer then records what the *biller* says
+about the verified account (`account_holder` evidence scoped to the bill). The holder name and the
+normalized service address must match the claim, or the binding is refused. Identity and person-level
+hardship evidence must name that same holder. Evidence about someone else never counts, even if valid.
+
+**Assurance by trailing-year amount.** Publication sums what the bill's household, account, requester
+account, and verified person received in the last 365 days. Any shared key counts, so new app accounts,
+reformatted addresses, or split bills cannot reset a cap. Refunded bills count nothing, and expired
+bills count only what was raised.
+
+| Trailing total including this bill | Identity | Hardship |
+|---|---|---|
+| Up to `ELIGIBILITY_ATTESTED_LIMIT_CENTS` ($150) | Not required | Signed attestation, randomly audited; third-party evidence skips the audit |
+| Up to `ELIGIBILITY_IDENTIFIED_LIMIT_CENTS` ($600) | Required, valid 12 months | Third party: biller hardship program, benefits, income data, or a documented shock |
+| Above that, up to `ELIGIBILITY_ANNUAL_LIMIT_CENTS` ($3,000) | Required | Person-level: benefits, income data, or a documented shock, valid 6 months |
+
+A requester account that already used a different household this year starts at the identity level. A
+late or shutoff notice is not hardship evidence: it proves arrears, not need. Evidence subjects are the
+requester account ID for identity and person-level hardship (the bill ID for anonymous web requests), and
+the bill ID for `account_holder` and `biller_program` hardship. Identity stores the legal name encrypted;
+date of birth only enters a keyed person fingerprint.
+
+**Publication freezes the decision** in `bill_eligibility`: level, amount, every cap key, and the evidence
+used. Only the audit outcome can change afterwards, once. Bills without this record, including legacy
+live bills, leave the feed and cannot take gifts.
+
+**Audits.** `ELIGIBILITY_AUDIT_RATE` (10% by default) of attestation-only bills are selected at publication
+with a cryptographic random draw. Giving continues, but payment preparation, release, and execution wait
+until a reviewer who did not publish the bill resolves the audit:
+
+- *Passed*: current hardship evidence that matches the holder is recorded.
+- *Failed*: the bill is removed and its gifts refunded, and every key (household, account, requester, person) is barred for `ELIGIBILITY_BAR_DAYS`. Other live bills sharing a key stop taking gifts and leave the feed.
+- *Abandoned*: a requester who withdraws during an audit loses attestation for every key on that bill. Third-party evidence still works.
+
+The requester sees the routine check on their request. Givers never see levels, methods, or audits.
 
 ## Payment and exception states
 
@@ -182,6 +225,7 @@ Monitor `/admin/ops` records for:
 - Released or executing instructions whose outcome is uncertain.
 - Submitted payments without settlement, settled payments without posting, and returned payments without completed refunds.
 - Suspended billers, stale verifications, and destination changes.
+- Bills awaiting a hardship audit (`eligibility` records with `audit_status = selected`), and audit failure rates. If attestation audits fail more than about 5% of the time, lower the attested limit or raise the audit rate.
 
 Use `/health` for process health; it does not certify payment readiness. Set external alerts on worker/job age and reconciliation exceptions. Export append-only audit records to separately controlled storage and have an independent reviewer examine controls. A database owner can alter a database; append-only runtime permissions do not replace external audit retention.
 

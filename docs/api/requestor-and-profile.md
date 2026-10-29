@@ -101,6 +101,42 @@ email address. Anonymous web/legacy submissions are not automatically claimed by
 Duplicate-debt protection still applies to a resubmission: a closed prior case releases its active claim
 only after all collections/refunds are resolved and no outgoing payment remains active.
 
+### `PUT /api/requests/{id}/eligibility`
+
+The requester's statement for the person/household and hardship gates. No documents are uploaded.
+
+```json
+{
+  "account_holder_name": "Maria Garcia",
+  "service_street": "12 Oak Street Apt 2",
+  "service_zip": "40508",
+  "hardship_cause": "job_loss | reduced_income | medical | disability | benefits_gap | household_change | other",
+  "signature": "Maria Garcia",
+  "attest": true
+}
+```
+
+The signature must name the account holder; household members who are not the holder are not supported
+yet. Allowed while `submitted`, `in_review`, or `needs_info`. Claims are append-only and the latest one
+counts, so a correction made after the biller confirmed the holder requires a new confirmation. Field
+errors return `422` with a field map. Returns the same body as `GET`.
+
+### `GET /api/requests/{id}/eligibility`
+
+```json
+{
+  "claim_submitted": true,
+  "hardship_cause": "job_loss",
+  "published": false,
+  "steps": [{ "code": "identity", "message": "Verify your identity. This takes about two minutes and covers your requests for a year." }]
+}
+```
+
+`steps[].code` is one of `claim`, `account_holder` (Paylee is confirming with the company; nothing to do),
+`identity`, `hardship`, `annual_limit`, or `barred`. After publication, a `hardship` step appears only when
+the request was picked for a routine check; payment to the biller waits until it is resolved. The response
+never reveals other bills, household totals, or fingerprints. Givers never see any of it.
+
 ## 3. Profile settings
 
 ### `GET /api/me/settings` / `PUT /api/me/settings`

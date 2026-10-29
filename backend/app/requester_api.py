@@ -1,13 +1,23 @@
 """Authenticated requester endpoints matching the native app's request contract."""
 
 import re
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from . import bills, db, documents, intake, notify, ratelimit, requests, trust
+from . import (
+    bills,
+    db,
+    documents,
+    eligibility,
+    intake,
+    notify,
+    ratelimit,
+    requests,
+    trust,
+)
 from .money import MAX_BILL_CENTS
 from .security import CurrentUser
 
@@ -88,3 +98,34 @@ class BalanceUpdate(BaseModel):
 def update_request_balance(bill_id: UUID, body: BalanceUpdate, user: CurrentUser):
     with db.transaction() as conn:
         return requests.report_balance(conn, user["id"], bill_id, body.amount_cents, body.note.strip())
+
+
+class EligibilityClaim(BaseModel):
+    account_holder_name: str = Field(max_length=120)
+    service_street: str = Field(max_length=120)
+    service_zip: str = Field(max_length=10)
+    hardship_cause: Literal[eligibility.CAUSES]
+    signature: str = Field(max_length=120)
+    attest: Literal[True]
+
+
+@router.get("/{bill_id}/eligibility")
+def get_eligibility(bill_id: UUID, user: CurrentUser):
+    with db.transaction() as conn:
+        view = eligibility.requester_view(conn, user["id"], bill_id)
+    if view is None:
+        raise HTTPException(404, "Request not found")
+    return view
+
+
+@router.put("/{bill_id}/eligibility")
+def put_eligibility(bill_id: UUID, body: EligibilityClaim, user: CurrentUser):
+    values = {key: value.strip() if isinstance(value, str) else value for key, value in body.model_dump().items()}
+    errors = eligibility.validate_claim(values)
+    if errors:
+        raise HTTPException(422, errors)
+    with db.transaction() as conn:
+        if not conn.execute("select 1 from bills where id = %s and requester_user_id = %s", (bill_id, user["id"])).fetchone():
+            raise HTTPException(404, "Request not found")
+        eligibility.submit_claim(conn, bill_id, user["id"], values)
+        return eligibility.requester_view(conn, user["id"], bill_id)

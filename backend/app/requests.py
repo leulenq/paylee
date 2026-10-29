@@ -2,7 +2,7 @@
 
 from fastapi import HTTPException
 
-from . import bills, notify, trust, vault
+from . import bills, eligibility, notify, trust, vault
 from .config import get_settings
 from .money import format_dollars
 
@@ -53,6 +53,7 @@ def withdraw(conn, user_id, bill_id):
         return get(conn, user_id, bill_id)
     if bill["status"] not in WITHDRAWABLE:
         raise trust.TrustError("This request can no longer be withdrawn; contact Paylee about its payment status")
+    eligibility.on_withdraw(conn, bill_id)
     bills.remove(conn, bill_id, "Requester withdrew their own request", get_settings().max_live_bills, withdrawn=True)
     conn.execute("update bills set requester_status_note = %s where id = %s",
                  ("You withdrew this bill. Any eligible gifts are being returned to their original payment methods.", bill_id))

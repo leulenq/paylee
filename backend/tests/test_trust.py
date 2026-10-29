@@ -352,7 +352,8 @@ def test_runtime_role_can_post_but_cannot_rewrite_or_delete_financial_records(cl
         trust.release_payment(conn, ops["payer"], order["id"], balance)
         trust.claim_execution(conn, ops["payer"], order["id"])
         for statement in ("delete from ledger_journals", "update evidence set source = 'tampered'",
-                          "update staff set roles = array['treasury']"):
+                          "update staff set roles = array['treasury']", "update bill_eligibility set level = 'attested'",
+                          "delete from eligibility_bars", "update hardship_checks set method = 'income'"):
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 with conn.transaction():
                     conn.execute(statement)

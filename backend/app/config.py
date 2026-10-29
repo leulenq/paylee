@@ -71,6 +71,18 @@ class Settings(BaseSettings):
     pass_cooldown_days: int = 3
     expiry_grace_days: int = 7
 
+    # Eligibility assurance scales with what a household has received in the trailing year, so a large
+    # bill cannot be split into small ones. Above the attested limit, identity is required; above the
+    # identified limit, hardship must come from a person-level third-party source.
+    eligibility_attested_limit_cents: int = 15_000
+    eligibility_identified_limit_cents: int = 60_000
+    eligibility_annual_limit_cents: int = 300_000
+    # Share of self-attested bills that must produce hardship evidence before payment.
+    eligibility_audit_rate: float = 0.10
+    identity_check_days: int = 365
+    hardship_check_days: int = 180
+    eligibility_bar_days: int = 365
+
     def check_safe_for_environment(self) -> None:
         if self.environment != "production":
             return
@@ -109,6 +121,11 @@ class Settings(BaseSettings):
             problems.append("Production malware scanner must be clamav")
         if self.verification_hours <= 0 or self.release_balance_minutes <= 0:
             problems.append("Verification windows must be positive")
+        if not (0 < self.eligibility_attested_limit_cents <= self.eligibility_identified_limit_cents
+                <= self.eligibility_annual_limit_cents):
+            problems.append("Eligibility limits must be positive and ascending")
+        if not 0.05 <= self.eligibility_audit_rate <= 1:
+            problems.append("ELIGIBILITY_AUDIT_RATE must be between 0.05 and 1")
         if problems:
             raise RuntimeError("Unsafe production config: " + "; ".join(problems))
 
