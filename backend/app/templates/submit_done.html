@@ -1,8 +1,28 @@
 {% extends "base.html" %}
 {% block title %}Submitted · Paylee{% endblock %}
+{% block styles %}
+<style>
+  .stamp { display: inline-flex; align-items: center; gap: 10px; font: 600 15px/1 var(--ui); color: var(--ink-muted); margin-bottom: 20px; }
+  .stamp svg { flex: none; }
+  .timeline { list-style: none; margin: 8px 0 40px; padding: 0; border-top: 1px solid var(--line); }
+  .timeline li { display: grid; grid-template-columns: 20px 1fr; gap: 4px 16px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+  .timeline li::before { content: ""; width: 10px; height: 10px; margin: 7px 0 0 4px; border-radius: 50%; border: 1.5px solid var(--ink-muted); }
+  .timeline li.now::before { background: var(--lime); border-color: var(--lime); }
+  .timeline strong { font-weight: 600; }
+  .timeline span { grid-column: 2; color: var(--ink-muted); font-size: 15px; }
+</style>
+{% endblock %}
 {% block content %}
-<p class="eyebrow">Submitted</p>
-<h1>Thanks, {{ first_name }}. Your bill is in review.</h1>
-<p class="lede">A reviewer will check that the bill is real and in your name, then email you. Approved bills join a short waitlist before they go live, so every bill gets a fair amount of attention from givers.</p>
-<div class="notice">Keep paying what you can in the meantime. If your balance changes, reply to our email so we never overpay the company.</div>
+<div class="rise">
+  <p class="stamp"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="8.2" stroke="#9A9F92" stroke-width="1.6"/><path d="m6.5 10.2 2.4 2.3 4.6-4.9" stroke="#9A9F92" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Submitted</p>
+  <h1>Thanks, {{ first_name }}. Your bill is in review.</h1>
+  <p class="lede">We'll check it with the company and email you. Here's what happens from here.</p>
+  <ol class="timeline">
+    <li class="now"><strong>Review</strong><span>A person confirms the balance and that the account is in your name. We may email you for one more detail.</span></li>
+    <li><strong>Waitlist</strong><span>Approved bills wait a short while so every bill gets a fair share of attention from givers.</span></li>
+    <li><strong>Live</strong><span>Givers see your first name, city, the company, the amount, and your story.</span></li>
+    <li><strong>Paid</strong><span>Paylee pays the company directly and emails you when the payment is applied.</span></li>
+  </ol>
+  <div class="notice">Keep paying what you can in the meantime. If your balance changes, reply to our email so we never overpay the company.</div>
+</div>
 {% endblock %}

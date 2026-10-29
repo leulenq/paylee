@@ -198,10 +198,14 @@ def test_admin_locks_out_repeated_wrong_passwords(client):
     assert client.get("/admin", auth=ADMIN_AUTH).status_code == 429
 
 
-def test_web_fonts_are_served(client):
-    response = client.get("/static/fonts/InstrumentSerif-Regular.ttf")
-    assert response.status_code == 200
-    assert len(response.content) > 10_000
+def test_every_font_the_pages_reference_is_served(client):
+    page = client.get("/submit").text
+    fonts = set(re.findall(r"/static/fonts/[\w-]+\.woff2", page))
+    assert len(fonts) == 6
+    for path in fonts:
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.content.startswith(b"wOF2")
 
 
 def test_checkout_return_hands_off_to_the_app(client):

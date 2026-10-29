@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} · Paylee{% endblock %}
 {% block content %}
-<h1>{{ title }}</h1>
-<p class="lede">{{ message }}</p>
+<div class="rise">
+  <h1>{{ title }}</h1>
+  <p class="lede">{{ message }}</p>
+  <a class="button secondary" href="/submit">Get help with a bill</a>
+</div>
 {% endblock %}

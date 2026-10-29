@@ -1,129 +1,265 @@
 {% extends "base.html" %}
 {% block title %}Get help with a bill · Paylee{% endblock %}
+{% block meta %}<meta name="description" content="Share one bill. If givers chip in, Paylee pays the company on your bill directly.">{% endblock %}
+{% block main_class %}intake{% endblock %}
+{% block header_note %}<span class="header-note">Takes about 5 minutes</span>{% endblock %}
+{% macro field_error(name) -%}
+{% if errors[name] %}<div class="error" id="{{ name }}-error">{{ errors[name] }}</div>{% endif %}
+{%- endmacro %}
+{% macro invalid(name) -%}
+{% if errors[name] %}aria-invalid="true" aria-describedby="{{ name }}-error"{% endif %}
+{%- endmacro %}
+{% block styles %}
+<style>
+  main.intake { display: grid; gap: 48px; }
+  @media (min-width: 960px) {
+    main.intake { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 80px; align-items: start; }
+    .intro { position: sticky; top: 32px; }
+  }
+  .intro h1 { max-width: 11ch; }
+  .steps { list-style: none; margin: 0 0 32px; padding: 0; border-top: 1px solid var(--line); counter-reset: step; }
+  .steps li { display: grid; grid-template-columns: 36px 1fr; gap: 4px 12px; padding: 18px 0; border-bottom: 1px solid var(--line); counter-increment: step; }
+  .steps li::before { content: counter(step); font: 900 18px/1.3 var(--display); color: var(--ink-muted); }
+  .steps strong { font-weight: 600; }
+  .steps span { grid-column: 2; color: var(--ink-muted); font-size: 15px; }
+  .privacy { color: var(--ink-muted); font-size: 15px; max-width: 46ch; }
+  .privacy strong { color: var(--ink); font-weight: 600; }
+
+  form.intake-form { min-width: 0; }
+  .section { padding: 8px 0 36px; border-bottom: 1px solid var(--line); }
+  .section + .section { padding-top: 36px; }
+  .section:last-of-type { border-bottom: 0; }
+  .section-head { display: flex; align-items: baseline; gap: 14px; margin: 0 0 10px; }
+  .section-head h2 { margin: 0; }
+  .section-index { font: 900 15px/1 var(--display); color: var(--ink-muted); min-width: 22px; }
+  .section-note { color: var(--ink-muted); font-size: 15px; margin: 6px 0 0 36px; }
+  @media (max-width: 520px) { .section-note { margin-left: 0; } }
+
+  fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  legend { font-weight: 600; font-size: 15px; margin: 0; padding: 22px 0 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { position: relative; margin: 0; font-weight: 500; font-size: 15px; }
+  .chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+  .chip span { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); transition: background-color var(--quick), color var(--quick), border-color var(--quick); }
+  .chip input:hover + span { border-color: var(--ink-faint); }
+  .chip input:checked + span { background: var(--ink); color: var(--canvas); border-color: var(--ink); }
+  .chip input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+  .options { border-top: 1px solid var(--line); }
+  .option { display: flex; align-items: center; gap: 14px; margin: 0; padding: 15px 2px; border-bottom: 1px solid var(--line); font-weight: 400; font-size: 16px; cursor: pointer; }
+  .option input { flex: none; appearance: none; -webkit-appearance: none; width: 22px; height: 22px; margin: 0; border-radius: 50%; border: 1.5px solid var(--ink-muted); display: grid; place-items: center; cursor: pointer; transition: border-color var(--quick); }
+  .option input::after { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--ink); transform: scale(0); transition: transform var(--quick); }
+  .option input:checked { border-color: var(--ink); }
+  .option input:checked::after { transform: scale(1); }
+
+  .prefixed { position: relative; }
+  .prefixed::before { content: "$"; position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--ink-muted); pointer-events: none; }
+  .prefixed input { padding-left: 32px; font-variant-numeric: tabular-nums; }
+
+  .drop { position: relative; display: flex; align-items: center; gap: 16px; margin: 0; padding: 20px; min-height: 92px; border: 1px dashed var(--ink-faint); border-radius: var(--radius-control); background: var(--surface); cursor: pointer; font-weight: 400; transition: border-color var(--quick), background-color var(--quick); }
+  .drop:hover, .drop.dragging { border-color: var(--ink); background: var(--raised); }
+  .drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .drop input:focus-visible ~ .drop-text { outline: 2px solid var(--ink); outline-offset: 4px; border-radius: 4px; }
+  .drop-icon { flex: none; width: 44px; height: 44px; border-radius: 12px; background: var(--raised); display: grid; place-items: center; }
+  .drop-text strong { display: block; font-weight: 600; }
+  .drop-text span { color: var(--ink-muted); font-size: 14px; }
+  .drop.has-file { border-style: solid; border-color: var(--ink-muted); }
+  .drop[aria-invalid=true] { border-color: var(--danger); }
+
+  .counter { float: right; font-weight: 400; color: var(--ink-muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .counter.short { color: var(--ink-muted); }
+  .counter.ok { color: var(--ink); }
+  .signature { font: 700 20px/1.3 var(--ui); letter-spacing: -0.01em; }
+  .submit-row { margin-top: 32px; }
+  .submit-row p { color: var(--ink-muted); font-size: 14px; margin-top: 14px; }
+  .error-summary ul { margin: 8px 0 0; padding-left: 18px; }
+  .error-summary:focus { outline: none; }
+  .error-summary li { margin-top: 4px; }
+</style>
+{% endblock %}
 {% block content %}
-<p class="eyebrow">For people with a bill</p>
-<h1>Get help with a bill</h1>
-<p class="lede">Share one bill and a short story. If givers chip in, Paylee pays the company on your bill directly. The money never goes to a bank account.</p>
+<section class="intro rise">
+  <h1>Get help with a bill</h1>
+  <p class="lede">Share one bill and a few sentences about what happened. If givers chip in, Paylee pays the company on the bill directly.</p>
+  <ol class="steps">
+    <li><strong>A person checks your bill with the company.</strong><span>We email you when it's approved, or if we need anything else.</span></li>
+    <li><strong>Givers see a short version.</strong><span>Your first name, city, the company, the amount, and your story.</span></li>
+    <li><strong>Paylee pays the company.</strong><span>The money goes to your account with them, never to a bank account.</span></li>
+  </ol>
+  <p class="privacy"><strong>What stays private:</strong> your bill, last name, email, address, and account number. Givers never see them.</p>
+</section>
 
-<div class="notice">
-  <strong>What givers see:</strong> your first name, your city, the company, the amount, and your story.
-  They never see the bill itself, your email, or your account number.
-</div>
+<form class="intake-form rise" method="post" action="/submit" enctype="multipart/form-data" novalidate>
+  {% if errors %}
+  <div class="notice error-summary" role="alert" tabindex="-1" id="error-summary">
+    <strong>{{ errors|length }} thing{{ 's' if errors|length != 1 }} to fix before we can send this</strong>
+    <ul>{% for name, message in errors.items() %}<li><a href="#{{ name }}">{{ message }}</a></li>{% endfor %}</ul>
+  </div>
+  {% endif %}
 
-{% if errors %}
-<div class="notice" role="alert"><strong>Please fix the highlighted fields below.</strong></div>
-{% endif %}
-
-<form class="card" method="post" action="/submit" enctype="multipart/form-data" novalidate>
-  <div class="row">
-    <div>
-      <label for="first_name">First name</label>
-      <input id="first_name" name="first_name" type="text" autocomplete="given-name" value="{{ values.first_name or '' }}" required>
-      {% if errors.first_name %}<div class="error">{{ errors.first_name }}</div>{% endif %}
+  <div class="section">
+    <div class="section-head"><span class="section-index" aria-hidden="true">1</span><h2>About you</h2></div>
+    <div class="row">
+      <div>
+        <label for="first_name">First name</label>
+        <input id="first_name" name="first_name" type="text" autocomplete="given-name" value="{{ values.first_name or '' }}" required {{ invalid('first_name') }}>
+        {{ field_error('first_name') }}
+      </div>
+      <div>
+        <label for="email">Email <span class="hint">Only for updates about this bill</span></label>
+        <input id="email" name="email" type="email" autocomplete="email" inputmode="email" value="{{ values.email or '' }}" required {{ invalid('email') }}>
+        {{ field_error('email') }}
+      </div>
     </div>
-    <div>
-      <label for="city">City</label>
-      <input id="city" name="city" type="text" autocomplete="address-level2" placeholder="Lexington" value="{{ values.city or '' }}" required>
-      {% if errors.city %}<div class="error">{{ errors.city }}</div>{% endif %}
-    </div>
-    <div>
-      <label for="state">State</label>
-      <select id="state" name="state" autocomplete="address-level1" required>
-        <option value="">Choose</option>
-        {% for code, name in states.items() %}
-        <option value="{{ code }}" {% if values.state == code %}selected{% endif %}>{{ name }}</option>
-        {% endfor %}
-      </select>
-      {% if errors.state %}<div class="error">{{ errors.state }}</div>{% endif %}
+    <div class="row">
+      <div>
+        <label for="city">City</label>
+        <input id="city" name="city" type="text" autocomplete="address-level2" value="{{ values.city or '' }}" required {{ invalid('city') }}>
+        {{ field_error('city') }}
+      </div>
+      <div>
+        <label for="state">State</label>
+        <select id="state" name="state" autocomplete="address-level1" required {{ invalid('state') }}>
+          <option value="">Choose</option>
+          {% for code, name in states.items() %}
+          <option value="{{ code }}" {% if values.state == code %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+        {{ field_error('state') }}
+      </div>
     </div>
   </div>
 
-  <label for="email">Email <span class="hint">· private, only used to contact you about this bill</span></label>
-  <input id="email" name="email" type="email" autocomplete="email" value="{{ values.email or '' }}" required>
-  {% if errors.email %}<div class="error">{{ errors.email }}</div>{% endif %}
-
-  <div class="row">
-    <div>
-      <label for="category">Kind of bill</label>
-      <select id="category" name="category" required>
-        <option value="">Choose one</option>
+  <div class="section">
+    <div class="section-head"><span class="section-index" aria-hidden="true">2</span><h2>The bill</h2></div>
+    <fieldset id="category" {{ invalid('category') }}>
+      <legend>What kind of bill is it?</legend>
+      <div class="chips">
         {% for c in categories %}
-        <option value="{{ c }}" {% if values.category == c %}selected{% endif %}>{{ c|capitalize }}</option>
+        <label class="chip"><input type="radio" name="category" value="{{ c }}" {% if values.category == c %}checked{% endif %} required><span>{{ c|capitalize }}</span></label>
         {% endfor %}
-      </select>
-      {% if errors.category %}<div class="error">{{ errors.category }}</div>{% endif %}
+      </div>
+      {{ field_error('category') }}
+    </fieldset>
+
+    <label for="biller_name">Company on the bill</label>
+    <input id="biller_name" name="biller_name" type="text" autocomplete="organization" placeholder="Kentucky Utilities" value="{{ values.biller_name or '' }}" required {{ invalid('biller_name') }}>
+    {{ field_error('biller_name') }}
+
+    <div class="row">
+      <div>
+        <label for="amount">Amount due</label>
+        <div class="prefixed"><input id="amount" name="amount" type="text" inputmode="decimal" placeholder="212.50" value="{{ values.amount or '' }}" required {{ invalid('amount') }}></div>
+        {{ field_error('amount') }}
+      </div>
+      <div>
+        <label for="due_date">Due date</label>
+        <input id="due_date" name="due_date" type="date" value="{{ values.due_date or '' }}" required {{ invalid('due_date') }}>
+        {{ field_error('due_date') }}
+      </div>
     </div>
-    <div>
-      <label for="biller_name">Company on the bill</label>
-      <input id="biller_name" name="biller_name" type="text" placeholder="Kentucky Utilities" value="{{ values.biller_name or '' }}" required>
-      {% if errors.biller_name %}<div class="error">{{ errors.biller_name }}</div>{% endif %}
+
+    <label for="bill_file">Photo or PDF of the bill</label>
+    <div class="drop" data-drop {{ invalid('bill_file') }}>
+      <input id="bill_file" name="bill_file" type="file" accept="image/jpeg,image/png,image/heic,application/pdf" required>
+      <span class="drop-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 13V3m0 0L6 7m4-4 4 4M3 13v2.5A1.5 1.5 0 0 0 4.5 17h11a1.5 1.5 0 0 0 1.5-1.5V13" stroke="#F2F3EC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="drop-text" data-drop-text><strong>Add the latest statement</strong><span>A clear photo works. JPG, PNG, HEIC, or PDF up to 10 MB.</span></span>
+    </div>
+    {{ field_error('bill_file') }}
+  </div>
+
+  <div class="section">
+    <div class="section-head"><span class="section-index" aria-hidden="true">3</span><h2>Whose account it is</h2></div>
+    <p class="section-note">We confirm these with the company. Givers never see them.</p>
+    <label for="account_holder_name">Name on the account <span class="hint">As the company has it, including your last name</span></label>
+    <input id="account_holder_name" name="account_holder_name" type="text" autocomplete="name" value="{{ values.account_holder_name or '' }}" required {{ invalid('account_holder_name') }}>
+    {{ field_error('account_holder_name') }}
+    <div class="row">
+      <div style="flex-basis: 280px">
+        <label for="service_street">Service address</label>
+        <input id="service_street" name="service_street" type="text" autocomplete="street-address" placeholder="Street and unit" value="{{ values.service_street or '' }}" required {{ invalid('service_street') }}>
+        {{ field_error('service_street') }}
+      </div>
+      <div style="flex-basis: 120px; flex-grow: 0.4">
+        <label for="service_zip">ZIP code</label>
+        <input id="service_zip" name="service_zip" type="text" inputmode="numeric" autocomplete="postal-code" maxlength="10" value="{{ values.service_zip or '' }}" required {{ invalid('service_zip') }}>
+        {{ field_error('service_zip') }}
+      </div>
     </div>
   </div>
 
-  <div class="row">
-    <div>
-      <label for="amount">Amount due</label>
-      <input id="amount" name="amount" type="text" inputmode="decimal" placeholder="212.50" value="{{ values.amount or '' }}" required>
-      {% if errors.amount %}<div class="error">{{ errors.amount }}</div>{% endif %}
-    </div>
-    <div>
-      <label for="due_date">Due date</label>
-      <input id="due_date" name="due_date" type="date" value="{{ values.due_date or '' }}" required>
-      {% if errors.due_date %}<div class="error">{{ errors.due_date }}</div>{% endif %}
-    </div>
+  <div class="section">
+    <div class="section-head"><span class="section-index" aria-hidden="true">4</span><h2>What happened</h2></div>
+    <fieldset id="hardship_cause" {{ invalid('hardship_cause') }}>
+      <legend>What put you behind?</legend>
+      <div class="options">
+        {% for code, label in causes.items() %}
+        <label class="option"><input type="radio" name="hardship_cause" value="{{ code }}" {% if values.hardship_cause == code %}checked{% endif %} required>{{ label }}</label>
+        {% endfor %}
+      </div>
+      {{ field_error('hardship_cause') }}
+    </fieldset>
+
+    <label for="story">Your story <span class="counter" data-counter aria-live="polite"></span>
+      <span class="hint">A few sentences givers will read. Leave out your last name, address, and account numbers; a reviewer also checks.</span></label>
+    <textarea id="story" name="story" minlength="40" maxlength="800" required {{ invalid('story') }}>{{ values.story or '' }}</textarea>
+    {{ field_error('story') }}
   </div>
 
-  <label for="story">Your story <span class="hint">· 40 to 800 characters. Don't include your last name, address, or account numbers.</span></label>
-  <textarea id="story" name="story" maxlength="800" required>{{ values.story or '' }}</textarea>
-  {% if errors.story %}<div class="error">{{ errors.story }}</div>{% endif %}
+  <div class="section">
+    <div class="section-head"><span class="section-index" aria-hidden="true">5</span><h2>Sign</h2></div>
+    <label class="check" for="attest">
+      <input type="checkbox" id="attest" name="attest" value="true" {% if values.attest %}checked{% endif %} {{ invalid('attest') }}>
+      <span>I can't pay this bill on my own right now because of what I chose above. Paylee checks some requests at random and may ask me for one document before paying. Requests that don't hold up are removed, and the household can't use Paylee for a year.</span>
+    </label>
+    {{ field_error('attest') }}
+    <label class="check" for="consent">
+      <input type="checkbox" id="consent" name="consent" value="true" {{ invalid('consent') }}>
+      <span>This bill is in my name, and I understand a reviewer will check it before it goes live.</span>
+    </label>
+    {{ field_error('consent') }}
+    <label for="signature">Type your full name to sign</label>
+    <input id="signature" class="signature" name="signature" type="text" autocomplete="name" value="{{ values.signature or '' }}" required {{ invalid('signature') }}>
+    {{ field_error('signature') }}
 
-  <label for="bill_file">Photo or PDF of the bill <span class="hint">· JPG, PNG, HEIC, or PDF up to 10 MB</span></label>
-  <input id="bill_file" name="bill_file" type="file" accept="image/jpeg,image/png,image/heic,application/pdf" required>
-  {% if errors.bill_file %}<div class="error">{{ errors.bill_file }}</div>{% endif %}
-
-  <h2>Whose account is it?</h2>
-  <p class="hint">We confirm these details with the company. Givers never see them.</p>
-  <label for="account_holder_name">Name on the account</label>
-  <input id="account_holder_name" name="account_holder_name" type="text" autocomplete="name" value="{{ values.account_holder_name or '' }}" required>
-  {% if errors.account_holder_name %}<div class="error">{{ errors.account_holder_name }}</div>{% endif %}
-  <div class="row">
-    <div>
-      <label for="service_street">Service address</label>
-      <input id="service_street" name="service_street" type="text" autocomplete="street-address" value="{{ values.service_street or '' }}" required>
-      {% if errors.service_street %}<div class="error">{{ errors.service_street }}</div>{% endif %}
-    </div>
-    <div>
-      <label for="service_zip">ZIP code</label>
-      <input id="service_zip" name="service_zip" type="text" inputmode="numeric" autocomplete="postal-code" value="{{ values.service_zip or '' }}" required>
-      {% if errors.service_zip %}<div class="error">{{ errors.service_zip }}</div>{% endif %}
+    <div class="submit-row">
+      <button type="submit" class="block">Send for review</button>
+      <p>Nothing is posted until a reviewer approves it. You can withdraw any time before it's paid.</p>
     </div>
   </div>
-
-  <label for="hardship_cause">What put you behind?</label>
-  <select id="hardship_cause" name="hardship_cause" required>
-    <option value="">Choose one</option>
-    {% for code, label in causes.items() %}
-    <option value="{{ code }}" {% if values.hardship_cause == code %}selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  {% if errors.hardship_cause %}<div class="error">{{ errors.hardship_cause }}</div>{% endif %}
-
-  <label class="check">
-    <input type="checkbox" name="attest" value="true" {% if values.attest %}checked{% endif %}>
-    <span>I can't pay this bill on my own right now because of what I chose above. Paylee checks some requests at random and may ask me for one document before paying. Requests that don't hold up are removed, and the household can't use Paylee for a year.</span>
-  </label>
-  {% if errors.attest %}<div class="error">{{ errors.attest }}</div>{% endif %}
-
-  <label for="signature">Type your full name to sign</label>
-  <input id="signature" name="signature" type="text" autocomplete="name" value="{{ values.signature or '' }}" required>
-  {% if errors.signature %}<div class="error">{{ errors.signature }}</div>{% endif %}
-
-  <label class="check">
-    <input type="checkbox" name="consent" value="true">
-    <span>This bill is in my name, and I understand a reviewer will check it before it goes live.</span>
-  </label>
-  {% if errors.consent %}<div class="error">{{ errors.consent }}</div>{% endif %}
-
-  <p><button type="submit">Submit for review</button></p>
 </form>
+
+<script>
+(() => {
+  const summary = document.getElementById('error-summary');
+  if (summary) summary.focus();
+
+  const drop = document.querySelector('[data-drop]');
+  const input = drop.querySelector('input');
+  const text = drop.querySelector('[data-drop-text]');
+  const original = text.innerHTML;
+  const render = () => {
+    const file = input.files && input.files[0];
+    drop.classList.toggle('has-file', !!file);
+    if (!file) { text.innerHTML = original; return; }
+    const size = file.size > 1048576 ? (file.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(file.size / 1024)) + ' KB';
+    text.replaceChildren();
+    const name = document.createElement('strong'); name.textContent = file.name;
+    const meta = document.createElement('span'); meta.textContent = size + ' · Choose a different file';
+    text.append(name, meta);
+  };
+  input.addEventListener('change', render);
+  for (const kind of ['dragenter', 'dragover']) drop.addEventListener(kind, () => drop.classList.add('dragging'));
+  for (const kind of ['dragleave', 'drop']) drop.addEventListener(kind, () => drop.classList.remove('dragging'));
+
+  const story = document.getElementById('story');
+  const counter = document.querySelector('[data-counter]');
+  const count = () => {
+    const n = story.value.trim().length;
+    counter.textContent = n < 40 ? `${40 - n} more to go` : `${n} / 800`;
+    counter.className = 'counter ' + (n < 40 ? 'short' : 'ok');
+  };
+  story.addEventListener('input', count); count();
+})();
+</script>
 {% endblock %}
